@@ -1,0 +1,38 @@
+:root {
+  --navy: #002d56;
+  --sans: 'Montserrat', system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  font: 18px/145% var(--sans);
+  color: var(--navy);
+  background: #2a241c;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  overflow: auto;
+}
+
+h1 {
+  font-family: var(--sans);
+}
+
+button {
+  font-family: inherit;
+}
