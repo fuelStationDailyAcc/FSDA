@@ -1,9 +1,10 @@
-const API_BASE = "/api/v1/users"
+import { USERS_API } from "./proxy"
 
 export type AuthUser = {
   _id: string
   username: string
   email: string
+  role?: string
 }
 
 type ApiSuccess<T> = {
@@ -14,7 +15,7 @@ type ApiSuccess<T> = {
 
 async function request<T>(path: string, options: RequestInit = {}) {
   const token = localStorage.getItem("accessToken")
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${USERS_API}${path}`, {
     ...options,
     credentials: "include",
     headers: {

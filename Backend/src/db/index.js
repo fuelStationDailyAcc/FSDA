@@ -1,6 +1,10 @@
 import pg from "pg";
+import { ensureSchema } from "./schema.js";
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+// Keep DATE columns as YYYY-MM-DD strings (avoid UTC timezone shifts).
+types.setTypeParser(1082, (value) => value);
 
 function databaseUrl() {
     const url = process.env.DATABASE_URL;
@@ -30,6 +34,21 @@ export async function query(text, params) {
     return pool.query(text, params);
 }
 
+export async function withTransaction(fn) {
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const result = await fn(client);
+        await client.query("COMMIT");
+        return result;
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function connectDB() {
     const client = await pool.connect();
     try {
@@ -45,11 +64,13 @@ export async function connectDB() {
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         `);
-        const host = new URL(databaseUrl()).hostname;
-        console.log(`PostgreSQL connected (${host})`);
     } finally {
         client.release();
     }
+
+    await ensureSchema();
+    const host = new URL(databaseUrl()).hostname;
+    console.log(`PostgreSQL connected (${host})`);
 }
 
 export { pool };

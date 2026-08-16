@@ -9,6 +9,7 @@ function mapUser(row) {
         username: row.username,
         email: row.email,
         password: row.password,
+        role: row.role || "manager",
         refreshToken: row.refresh_token,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -21,6 +22,7 @@ function toPublicUser(user) {
         _id: user._id,
         username: user.username,
         email: user.email,
+        role: user.role || "manager",
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
     };

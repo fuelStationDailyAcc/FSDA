@@ -1,34 +1,27 @@
-import { useNavigate } from 'react-router-dom'
-import PageShell from '../components/PageShell'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 function DashboardPage() {
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
-
-  async function handleLogout() {
-    await logout()
-    navigate('/login', { replace: true })
-  }
+  const { user } = useAuth()
 
   return (
-    <PageShell>
-      <section className="hero-card">
-        <h1>
-          WELCOME
-          <br />
-          {user?.username}
-        </h1>
-        <p className="tagline">
-          You are signed in to FuelSNC Daily Accounts.
+    <div>
+      <section className="panel">
+        <h1 className="page-title">Welcome, {user?.username}</h1>
+        <p className="muted" style={{ marginTop: 8 }}>
+          FuelSNC Daily Accounts — enter meter readings, expenses, and ledger entries for each
+          accounting day.
         </p>
-        <p className="tagline">{user?.email}</p>
-        <button type="button" className="cta" onClick={handleLogout}>
-          LOG OUT
-          <span className="cta-arrow" aria-hidden="true" />
-        </button>
+        <div className="toolbar" style={{ marginTop: 18 }}>
+          <Link to="/accounts" className="btn" style={{ textDecoration: 'none' }}>
+            Open Daily Accounts
+          </Link>
+          <Link to="/settings" className="btn-secondary" style={{ textDecoration: 'none' }}>
+            Settings
+          </Link>
+        </div>
       </section>
-    </PageShell>
+    </div>
   )
 }
 

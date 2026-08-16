@@ -1,9 +1,13 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import AppShell from './components/AppShell'
 import AuthPage from './pages/AuthPage'
 import DashboardPage from './pages/DashboardPage'
+import DailyAccountsPage from './pages/DailyAccountsPage'
 import HeroPage from './pages/HeroPage'
+import PartiesPage from './pages/PartiesPage'
+import SettingsPage from './pages/SettingsPage'
 
 function AppRouter() {
   return (
@@ -13,13 +17,17 @@ function AppRouter() {
           <Route path="/" element={<HeroPage />} />
           <Route path="/login" element={<AuthPage />} />
           <Route
-            path="/dashboard"
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <AppShell />
               </ProtectedRoute>
             }
-          />
+          >
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/accounts" element={<DailyAccountsPage />} />
+            <Route path="/parties" element={<PartiesPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
