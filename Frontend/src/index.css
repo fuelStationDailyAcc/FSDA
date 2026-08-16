@@ -1,5 +1,6 @@
 :root {
   --navy: #002d56;
+  --orange: #f58220;
   --sans: 'Montserrat', system-ui, 'Segoe UI', Roboto, sans-serif;
 
   font: 18px/145% var(--sans);

@@ -7,6 +7,7 @@ function AuthForm() {
   const navigate = useNavigate()
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [username, setUsername] = useState('')
+  const [stationName, setStationName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -19,7 +20,7 @@ function AuthForm() {
 
     try {
       if (mode === 'register') {
-        await register(username, email, password)
+        await register(username, email, password, stationName)
       } else {
         await login(email, password)
       }
@@ -34,18 +35,32 @@ function AuthForm() {
   return (
     <form className="auth-form" onSubmit={handleSubmit}>
       {mode === 'register' && (
-        <label className="auth-field">
-          Username
-          <input
-            type="text"
-            name="username"
-            autoComplete="username"
-            minLength={3}
-            required
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-          />
-        </label>
+        <>
+          <label className="auth-field">
+            Username
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              minLength={3}
+              required
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </label>
+          <label className="auth-field">
+            Fuel station name
+            <input
+              type="text"
+              name="stationName"
+              autoComplete="organization"
+              minLength={2}
+              required
+              value={stationName}
+              onChange={(event) => setStationName(event.target.value)}
+            />
+          </label>
+        </>
       )}
       <label className="auth-field">
         Email

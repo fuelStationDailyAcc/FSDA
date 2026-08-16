@@ -25,7 +25,8 @@ function AppRouter() {
           >
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/accounts" element={<DailyAccountsPage />} />
-            <Route path="/parties" element={<PartiesPage />} />
+            <Route path="/ledger" element={<PartiesPage />} />
+            <Route path="/parties" element={<Navigate to="/ledger" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

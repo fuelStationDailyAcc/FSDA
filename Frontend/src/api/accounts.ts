@@ -295,6 +295,20 @@ export async function fetchTxnCategories() {
   return apiRequest<NamedItem[]>(`/accounts/transaction-categories`)
 }
 
+export async function fetchLedgerNames(type?: "DEBIT" | "CREDIT", search?: string) {
+  return apiRequest<string[]>(
+    `/accounts/ledger-names${qs({ type, search: search || undefined })}`
+  )
+}
+
+export async function fetchLedgerTotals() {
+  return apiRequest<{
+    totalCreditPaise: number
+    totalDebitPaise: number
+    totalUdhaarPaise: number
+  }>(`/accounts/ledger-totals`)
+}
+
 export async function fetchCustomers() {
   return apiRequest<Party[]>(`/accounts/customers`)
 }
@@ -303,6 +317,12 @@ export async function createCustomer(body: Record<string, unknown>) {
   return apiRequest<Party>(`/accounts/customers`, {
     method: "POST",
     body: JSON.stringify(body),
+  })
+}
+
+export async function deleteCustomer(id: string) {
+  return apiRequest<Party>(`/accounts/customers/${id}`, {
+    method: "DELETE",
   })
 }
 

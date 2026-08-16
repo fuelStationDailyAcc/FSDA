@@ -5,6 +5,7 @@ export type AuthUser = {
   username: string
   email: string
   role?: string
+  stationName?: string | null
 }
 
 type ApiSuccess<T> = {
@@ -38,6 +39,7 @@ export async function registerRequest(input: {
   username: string
   email: string
   password: string
+  stationName: string
 }) {
   return request<{ user: AuthUser; accessToken: string }>("/register", {
     method: "POST",
@@ -61,4 +63,8 @@ export async function logoutRequest() {
 
 export async function meRequest() {
   return request<AuthUser>("/me")
+}
+
+export async function deleteAccountRequest() {
+  return request("/me", { method: "DELETE" })
 }

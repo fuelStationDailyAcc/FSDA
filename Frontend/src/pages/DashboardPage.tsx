@@ -7,7 +7,11 @@ function DashboardPage() {
   return (
     <div>
       <section className="panel">
-        <h1 className="page-title">Welcome, {user?.username}</h1>
+        <h1 className="page-title">
+          {user?.stationName
+            ? `Welcome to ${user.stationName}`
+            : `Welcome, ${user?.username}`}
+        </h1>
         <p className="muted" style={{ marginTop: 8 }}>
           FuelSNC Daily Accounts — enter meter readings, expenses, and ledger entries for each
           accounting day.

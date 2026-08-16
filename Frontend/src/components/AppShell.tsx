@@ -25,7 +25,7 @@ function AppShell() {
             Home
           </NavLink>
           <NavLink to="/accounts">Daily Accounts</NavLink>
-          <NavLink to="/parties">Parties</NavLink>
+          <NavLink to="/ledger">Ledger</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
         <div className="app-user">

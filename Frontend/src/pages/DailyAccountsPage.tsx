@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   addExpense,
   addReading,
@@ -8,9 +8,9 @@ import {
   deleteTransaction,
   fetchDailyAccount,
   fetchExpenseCategories,
+  fetchLedgerNames,
   fetchPaymentMethods,
   fetchProducts,
-  fetchTxnCategories,
   fetchCustomers,
   fetchVendors,
   reopenDay,
@@ -18,12 +18,14 @@ import {
   updateReading,
   upsertCollection,
   type DailyAccountPayload,
+  type LedgerTxn,
   type NamedItem,
   type Party,
   type PaymentMethod,
   type FuelProduct,
 } from '../api/accounts'
 import { Modal, ModalForm } from '../components/Modal'
+import Loader from '../components/Loader'
 import {
   formatDisplayDate,
   formatINR,
@@ -33,45 +35,18 @@ import {
 } from '../lib/money'
 import { useAuth } from '../context/AuthContext'
 
-type Filters = {
-  type: string
-  category: string
-  partyType: string
-  partyId: string
-  paymentMethodId: string
-  search: string
-  minAmount: string
-  maxAmount: string
-  page: number
-}
-
-const emptyFilters: Filters = {
-  type: '',
-  category: '',
-  partyType: '',
-  partyId: '',
-  paymentMethodId: '',
-  search: '',
-  minAmount: '',
-  maxAmount: '',
-  page: 1,
-}
-
 function DailyAccountsPage() {
   const { user } = useAuth()
   const [date, setDate] = useState(todayISO())
   const [data, setData] = useState<DailyAccountPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [products, setProducts] = useState<FuelProduct[]>([])
   const [methods, setMethods] = useState<PaymentMethod[]>([])
   const [expenseCats, setExpenseCats] = useState<NamedItem[]>([])
-  const [txnCats, setTxnCats] = useState<NamedItem[]>([])
   const [customers, setCustomers] = useState<Party[]>([])
   const [vendors, setVendors] = useState<Party[]>([])
 
-  const [txnOpen, setTxnOpen] = useState(false)
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [closeOpen, setCloseOpen] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
@@ -80,22 +55,11 @@ function DailyAccountsPage() {
 
   const closed = data?.account.status === 'closed'
 
-  const load = useCallback(async (d: string, f: Filters) => {
+  const load = useCallback(async (d: string) => {
     setLoading(true)
     setError('')
     try {
-      const payload = await fetchDailyAccount(d, {
-        type: f.type || undefined,
-        category: f.category || undefined,
-        partyType: f.partyType || undefined,
-        partyId: f.partyId || undefined,
-        paymentMethodId: f.paymentMethodId || undefined,
-        search: f.search || undefined,
-        minAmountPaise: f.minAmount ? Math.round(Number(f.minAmount) * 100) : undefined,
-        maxAmountPaise: f.maxAmount ? Math.round(Number(f.maxAmount) * 100) : undefined,
-        page: f.page,
-        limit: 50,
-      })
+      const payload = await fetchDailyAccount(d, { limit: 200 })
       setData(payload.data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load daily account')
@@ -105,22 +69,20 @@ function DailyAccountsPage() {
   }, [])
 
   useEffect(() => {
-    void load(date, filters)
-  }, [date, filters, load])
+    void load(date)
+  }, [date, load])
 
   useEffect(() => {
     void Promise.all([
       fetchProducts(true),
       fetchPaymentMethods(true),
       fetchExpenseCategories(),
-      fetchTxnCategories(),
       fetchCustomers(),
       fetchVendors(),
-    ]).then(([p, m, e, t, c, v]) => {
+    ]).then(([p, m, e, c, v]) => {
       setProducts(p.data)
       setMethods(m.data)
       setExpenseCats(e.data)
-      setTxnCats(t.data)
       setCustomers(c.data)
       setVendors(v.data)
     })
@@ -143,14 +105,22 @@ function DailyAccountsPage() {
     }
   }
 
-  const parties = useMemo(() => {
-    if (filters.partyType === 'vendor') return vendors
-    if (filters.partyType === 'customer') return customers
-    return [...customers, ...vendors]
-  }, [filters.partyType, customers, vendors])
+  const localNames = useMemo(() => {
+    const names = new Map<string, string>()
+    for (const p of [...customers, ...vendors]) {
+      const name = p.name?.trim()
+      if (name) names.set(name.toLowerCase(), name)
+    }
+    for (const t of data?.ledger.items || []) {
+      const name = t.description?.trim()
+      if (name) names.set(name.toLowerCase(), name)
+    }
+    return [...names.values()].sort((a, b) => a.localeCompare(b))
+  }, [customers, vendors, data?.ledger.items])
 
   return (
-    <div>
+    <div className={loading ? 'page-loading' : undefined}>
+      {loading && data ? <Loader overlay label="Updating…" /> : null}
       <section className="panel">
         <div className="toolbar">
           <div className="toolbar-left">
@@ -168,10 +138,7 @@ function DailyAccountsPage() {
               <input
                 type="date"
                 value={date}
-                onChange={(e) => {
-                  setFilters((f) => ({ ...f, page: 1 }))
-                  setDate(e.target.value)
-                }}
+                onChange={(e) => setDate(e.target.value)}
               />
             </label>
             <button
@@ -195,14 +162,6 @@ function DailyAccountsPage() {
             </span>
           </div>
           <div className="toolbar-right">
-            <button
-              type="button"
-              className="btn"
-              disabled={closed}
-              onClick={() => setTxnOpen(true)}
-            >
-              + Add Transaction
-            </button>
             {closed ? (
               <button
                 type="button"
@@ -230,7 +189,7 @@ function DailyAccountsPage() {
           {user?.role ? ` · Role: ${user.role}` : null}
         </p>
         {error ? <p className="error-text">{error}</p> : null}
-        {loading && !data ? <p className="muted">Loading…</p> : null}
+        {loading && !data ? <Loader fullPage label="Loading daily account…" /> : null}
       </section>
 
       {data ? (
@@ -256,22 +215,37 @@ function DailyAccountsPage() {
             }}
           />
 
-          <div className="two-col">
-            <CashSummarySection
-              data={data}
-              closed={!!closed}
-              onCollection={async (paymentMethodId, amountRupees) => {
-                const res = await upsertCollection(date, paymentMethodId, amountRupees)
-                applyDay(res.data)
-              }}
-              onCashTaken={async (cashTakenRupees) => {
-                const res = await updateCashTaken(date, cashTakenRupees)
-                applyDay(res.data)
-              }}
-            />
+          <CreditDebitSection
+            date={date}
+            closed={!!closed}
+            localNames={localNames}
+            entries={data.ledger.items}
+            onSave={async (body) => {
+              const key = crypto.randomUUID()
+              const res = await addTransaction(date, body, key)
+              applyDay(res.data)
+            }}
+            onDelete={async (id) => {
+              const res = await deleteTransaction(date, id)
+              applyDay(res.data)
+            }}
+            cashSummary={
+              <CashSummarySection
+                data={data}
+                closed={!!closed}
+                onCollection={async (paymentMethodId, amountRupees) => {
+                  const res = await upsertCollection(date, paymentMethodId, amountRupees)
+                  applyDay(res.data)
+                }}
+                onCashTaken={async (cashTakenRupees) => {
+                  const res = await updateCashTaken(date, cashTakenRupees)
+                  applyDay(res.data)
+                }}
+              />
+            }
+          />
 
-            <PaymentBreakdownSection collections={data.collections} />
-          </div>
+          <PaymentBreakdownSection collections={data.collections} />
 
           <ExpensesSection
             expenses={data.expenses}
@@ -284,44 +258,9 @@ function DailyAccountsPage() {
             }}
           />
 
-          <LedgerSection
-            data={data}
-            filters={filters}
-            setFilters={setFilters}
-            methods={methods}
-            parties={parties}
-            closed={!!closed}
-            onDelete={async (id) => {
-              const res = await deleteTransaction(date, id)
-              applyDay(res.data)
-            }}
-          />
-
           <ReconciliationSection data={data} onClose={() => setCloseOpen(true)} closed={!!closed} />
         </>
       ) : null}
-
-      <AddTransactionModal
-        open={txnOpen}
-        onClose={() => setTxnOpen(false)}
-        date={date}
-        methods={methods}
-        categories={txnCats}
-        customers={customers}
-        vendors={vendors}
-        busy={busy}
-        onSave={async (body) => {
-          setBusy(true)
-          try {
-            const key = crypto.randomUUID()
-            const res = await addTransaction(date, body, key)
-            applyDay(res.data)
-            setTxnOpen(false)
-          } finally {
-            setBusy(false)
-          }
-        }}
-      />
 
       <AddExpenseModal
         open={expenseOpen}
@@ -838,198 +777,6 @@ function ExpensesSection({
   )
 }
 
-function LedgerSection({
-  data,
-  filters,
-  setFilters,
-  methods,
-  parties,
-  closed,
-  onDelete,
-}: {
-  data: DailyAccountPayload
-  filters: Filters
-  setFilters: Dispatch<SetStateAction<Filters>>
-  methods: PaymentMethod[]
-  parties: Party[]
-  closed: boolean
-  onDelete: (id: string) => Promise<void>
-}) {
-  return (
-    <section className="panel">
-      <h2 className="panel-title">Debit / Credit Ledger</h2>
-      <div className="filters">
-        <label className="field">
-          Search
-          <input
-            value={filters.search}
-            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value, page: 1 }))}
-            placeholder="Description…"
-          />
-        </label>
-        <label className="field">
-          Type
-          <select
-            value={filters.type}
-            onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value, page: 1 }))}
-          >
-            <option value="">All</option>
-            <option value="DEBIT">Debit</option>
-            <option value="CREDIT">Credit</option>
-          </select>
-        </label>
-        <label className="field">
-          Category
-          <input
-            value={filters.category}
-            onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value, page: 1 }))}
-          />
-        </label>
-        <label className="field">
-          Party Type
-          <select
-            value={filters.partyType}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, partyType: e.target.value, partyId: '', page: 1 }))
-            }
-          >
-            <option value="">All</option>
-            <option value="customer">Customer</option>
-            <option value="vendor">Vendor</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label className="field">
-          Party
-          <select
-            value={filters.partyId}
-            onChange={(e) => setFilters((f) => ({ ...f, partyId: e.target.value, page: 1 }))}
-          >
-            <option value="">All</option>
-            {parties.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Payment Method
-          <select
-            value={filters.paymentMethodId}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, paymentMethodId: e.target.value, page: 1 }))
-            }
-          >
-            <option value="">All</option>
-            {methods.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Min Amount
-          <input
-            type="number"
-            min="0"
-            value={filters.minAmount}
-            onChange={(e) => setFilters((f) => ({ ...f, minAmount: e.target.value, page: 1 }))}
-          />
-        </label>
-        <label className="field">
-          Max Amount
-          <input
-            type="number"
-            min="0"
-            value={filters.maxAmount}
-            onChange={(e) => setFilters((f) => ({ ...f, maxAmount: e.target.value, page: 1 }))}
-          />
-        </label>
-      </div>
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Description</th>
-              <th>Party</th>
-              <th>Category</th>
-              <th>Payment Mode</th>
-              <th className="num">Debit</th>
-              <th className="num">Credit</th>
-              <th className="num">Balance</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.ledger.items.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="empty-state">
-                  No ledger entries for this day.
-                </td>
-              </tr>
-            ) : (
-              data.ledger.items.map((t) => (
-                <tr key={t.id}>
-                  <td>{formatDisplayDate(String(t.date).slice(0, 10))}</td>
-                  <td>
-                    <span className={`badge ${t.type === 'DEBIT' ? 'badge-debit' : 'badge-credit'}`}>
-                      {t.type}
-                    </span>{' '}
-                    {t.description}
-                  </td>
-                  <td>{t.partyName || '—'}</td>
-                  <td>{t.category}</td>
-                  <td>{t.paymentMethodName || '—'}</td>
-                  <td className="num">{t.type === 'DEBIT' ? formatINR(t.amountPaise) : '—'}</td>
-                  <td className="num">{t.type === 'CREDIT' ? formatINR(t.amountPaise) : '—'}</td>
-                  <td className="num">{formatINR(t.balancePaise)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm"
-                      disabled={closed}
-                      onClick={() => void onDelete(t.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="toolbar" style={{ marginTop: 12 }}>
-        <span className="muted">
-          Page {data.ledger.pagination.page} of {data.ledger.pagination.totalPages} ·{' '}
-          {data.ledger.pagination.total} entries
-        </span>
-        <div className="toolbar-right">
-          <button
-            type="button"
-            className="btn-ghost btn-sm"
-            disabled={filters.page <= 1}
-            onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            className="btn-ghost btn-sm"
-            disabled={filters.page >= data.ledger.pagination.totalPages}
-            onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
-          >
-            Next
-          </button>
-        </div>
-      </div>
-    </section>
-  )
-}
-
 function ReconciliationSection({
   data,
   onClose,
@@ -1102,156 +849,263 @@ function ReconciliationSection({
   )
 }
 
-function AddTransactionModal({
-  open,
-  onClose,
+function CreditDebitSection({
   date,
-  methods,
-  categories,
-  customers,
-  vendors,
-  busy,
+  closed,
+  localNames,
+  entries,
   onSave,
+  onDelete,
+  cashSummary,
 }: {
-  open: boolean
-  onClose: () => void
   date: string
-  methods: PaymentMethod[]
-  categories: NamedItem[]
-  customers: Party[]
-  vendors: Party[]
-  busy: boolean
+  closed: boolean
+  localNames: string[]
+  entries: LedgerTxn[]
   onSave: (body: Record<string, unknown>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+  cashSummary: ReactNode
 }) {
-  const [type, setType] = useState<'DEBIT' | 'CREDIT'>('DEBIT')
-  const [txnDate, setTxnDate] = useState(date)
-  const [time, setTime] = useState('')
-  const [description, setDescription] = useState('')
-  const [partyType, setPartyType] = useState('')
-  const [partyId, setPartyId] = useState('')
-  const [category, setCategory] = useState('')
+  const credits = useMemo(() => entries.filter((t) => t.type === 'CREDIT'), [entries])
+  const debits = useMemo(() => entries.filter((t) => t.type === 'DEBIT'), [entries])
+
+  return (
+    <div className="three-col credit-cash-row">
+      <TxnQuickBox
+        type="CREDIT"
+        title="Credit"
+        date={date}
+        closed={closed}
+        localNames={localNames}
+        entries={credits}
+        onSave={onSave}
+        onDelete={onDelete}
+      />
+      <TxnQuickBox
+        type="DEBIT"
+        title="Debit"
+        date={date}
+        closed={closed}
+        localNames={localNames}
+        entries={debits}
+        onSave={onSave}
+        onDelete={onDelete}
+      />
+      {cashSummary}
+    </div>
+  )
+}
+
+function TxnQuickBox({
+  type,
+  title,
+  date,
+  closed,
+  localNames,
+  entries,
+  onSave,
+  onDelete,
+}: {
+  type: 'CREDIT' | 'DEBIT'
+  title: string
+  date: string
+  closed: boolean
+  localNames: string[]
+  entries: LedgerTxn[]
+  onSave: (body: Record<string, unknown>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [personName, setPersonName] = useState('')
   const [amount, setAmount] = useState('')
-  const [paymentMethodId, setPaymentMethodId] = useState('')
-  const [referenceNumber, setReferenceNumber] = useState('')
-  const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [openSuggest, setOpenSuggest] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const [remoteNames, setRemoteNames] = useState<string[]>([])
+  const [searching, setSearching] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const requestId = useRef(0)
+
+  const totalPaise = useMemo(
+    () => entries.reduce((sum, t) => sum + t.amountPaise, 0),
+    [entries]
+  )
+
+  const suggestions = useMemo(() => {
+    const q = personName.trim().toLowerCase()
+    const merged = new Map<string, string>()
+    for (const n of [...localNames, ...remoteNames]) {
+      const name = n.trim()
+      if (!name) continue
+      const key = name.toLowerCase()
+      if (!merged.has(key)) merged.set(key, name)
+    }
+    let list = [...merged.values()]
+    if (q) list = list.filter((n) => n.toLowerCase().includes(q))
+    list.sort((a, b) => {
+      const al = a.toLowerCase()
+      const bl = b.toLowerCase()
+      const aStarts = q && al.startsWith(q) ? 0 : 1
+      const bStarts = q && bl.startsWith(q) ? 0 : 1
+      if (aStarts !== bStarts) return aStarts - bStarts
+      return a.localeCompare(b)
+    })
+    return list.slice(0, 10)
+  }, [localNames, remoteNames, personName])
 
   useEffect(() => {
-    if (open) {
-      setTxnDate(date)
-      setError('')
+    function onDocDown(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpenSuggest(false)
     }
-  }, [open, date])
+    document.addEventListener('mousedown', onDocDown)
+    return () => document.removeEventListener('mousedown', onDocDown)
+  }, [])
 
-  const partyOptions = partyType === 'vendor' ? vendors : partyType === 'customer' ? customers : []
+  useEffect(() => {
+    setHighlight(0)
+  }, [suggestions])
+
+  useEffect(() => {
+    if (!openSuggest) return
+    const q = personName.trim()
+    const id = ++requestId.current
+    setSearching(true)
+    const timer = window.setTimeout(() => {
+      void fetchLedgerNames(undefined, q || undefined)
+        .then((res) => {
+          if (requestId.current !== id) return
+          setRemoteNames(res.data || [])
+        })
+        .catch(() => {
+          if (requestId.current !== id) return
+          setRemoteNames([])
+        })
+        .finally(() => {
+          if (requestId.current === id) setSearching(false)
+        })
+    }, 180)
+    return () => window.clearTimeout(timer)
+  }, [personName, openSuggest])
+
+  function pickName(name: string) {
+    setPersonName(name)
+    setOpenSuggest(false)
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    if (!type) return setError('Transaction type required')
-    if (!txnDate) return setError('Date required')
-    if (!category.trim()) return setError('Category required')
-    if (!paymentMethodId) return setError('Payment method required')
+    if (!personName.trim()) return setError('Name required')
     if (!(Number(amount) > 0)) return setError('Amount must be greater than 0')
+    if (closed) return setError('Day is closed')
 
+    setSubmitting(true)
+    const savedName = personName.trim()
     try {
       await onSave({
         type,
-        date: txnDate,
-        time: time || null,
-        description,
-        partyType: partyType || null,
-        partyId: partyId || null,
-        category,
+        date,
+        personName: savedName,
+        description: savedName,
+        category: type,
         amountRupees: amount,
-        paymentMethodId,
-        referenceNumber: referenceNumber || null,
-        notes: notes || null,
+        partyType: 'other',
       })
-      setDescription('')
+      setPersonName('')
       setAmount('')
-      setNotes('')
-      setReferenceNumber('')
+      setOpenSuggest(false)
+      setRemoteNames((prev) => {
+        if (!savedName) return prev
+        if (prev.some((n) => n.toLowerCase() === savedName.toLowerCase())) return prev
+        return [...prev, savedName]
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!window.confirm(`Delete ${title.toLowerCase()} for “${name}”?`)) return
+    setDeletingId(id)
+    try {
+      await onDelete(id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
     }
   }
 
   return (
-    <Modal title="Add Transaction" open={open} onClose={onClose}>
-      <ModalForm
-        onSubmit={handleSubmit}
-        onCancel={onClose}
-        submitting={busy}
-        submitLabel="Save Transaction"
-        error={error}
-      >
-        <label className="field">
-          Transaction Type
-          <select value={type} onChange={(e) => setType(e.target.value as 'DEBIT' | 'CREDIT')}>
-            <option value="DEBIT">Debit</option>
-            <option value="CREDIT">Credit</option>
-          </select>
-        </label>
-        <label className="field">
-          Date
-          <input type="date" value={txnDate} onChange={(e) => setTxnDate(e.target.value)} required />
-        </label>
-        <label className="field">
-          Time
-          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-        </label>
-        <label className="field">
-          Category
-          <select value={category} onChange={(e) => setCategory(e.target.value)} required>
-            <option value="">Select…</option>
-            {categories
-              .filter((c) => !c.type || c.type === 'BOTH' || c.type === type)
-              .map((c) => (
-                <option key={c.id} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label className="field span-2">
-          Description
+    <section className={`panel txn-quick-box ${type === 'CREDIT' ? 'txn-credit' : 'txn-debit'}`}>
+      <div className="panel-head">
+        <h2 className="panel-title">{title}</h2>
+        <span className="txn-box-total">{formatINR(totalPaise)}</span>
+      </div>
+      <form className="txn-quick-form" onSubmit={(e) => void handleSubmit(e)}>
+        <div className="field name-suggest" ref={wrapRef}>
+          <label htmlFor={`${type}-person-name`}>Name of the person</label>
           <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            id={`${type}-person-name`}
+            value={personName}
+            onChange={(e) => {
+              setPersonName(e.target.value)
+              setOpenSuggest(true)
+            }}
+            onFocus={() => setOpenSuggest(true)}
+            onKeyDown={(e) => {
+              if (!openSuggest || suggestions.length === 0) return
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setHighlight((h) => (h + 1) % suggestions.length)
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length)
+              } else if (e.key === 'Enter' && suggestions[highlight]) {
+                const pick = suggestions[highlight]
+                if (personName.trim().toLowerCase() !== pick.toLowerCase()) {
+                  e.preventDefault()
+                  pickName(pick)
+                } else {
+                  setOpenSuggest(false)
+                }
+              } else if (e.key === 'Escape') {
+                setOpenSuggest(false)
+              }
+            }}
+            placeholder="Start typing a name…"
+            disabled={closed || submitting}
+            autoComplete="off"
             required
           />
-        </label>
-        <label className="field">
-          Party
-          <select
-            value={partyType}
-            onChange={(e) => {
-              setPartyType(e.target.value)
-              setPartyId('')
-            }}
-          >
-            <option value="">None</option>
-            <option value="customer">Customer</option>
-            <option value="vendor">Vendor</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label className="field">
-          Party Name
-          <select
-            value={partyId}
-            onChange={(e) => setPartyId(e.target.value)}
-            disabled={!partyType || partyType === 'other'}
-          >
-            <option value="">Select…</option>
-            {partyOptions.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
+          {openSuggest ? (
+            <ul className="name-suggest-list" role="listbox">
+              {suggestions.length === 0 ? (
+                <li className="name-suggest-empty">
+                  {searching ? 'Searching…' : personName.trim() ? 'No matching names' : 'No names yet — type a new one'}
+                </li>
+              ) : (
+                suggestions.map((name, i) => (
+                  <li key={name}>
+                    <button
+                      type="button"
+                      className={i === highlight ? 'active' : undefined}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        pickName(name)
+                      }}
+                    >
+                      {name}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          ) : null}
+        </div>
         <label className="field">
           Amount
           <input
@@ -1260,34 +1114,38 @@ function AddTransactionModal({
             step="0.01"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            disabled={closed || submitting}
             required
           />
         </label>
-        <label className="field">
-          Payment Method
-          <select
-            value={paymentMethodId}
-            onChange={(e) => setPaymentMethodId(e.target.value)}
-            required
-          >
-            <option value="">Select…</option>
-            {methods.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          Reference Number
-          <input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} />
-        </label>
-        <label className="field span-2">
-          Notes
-          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </label>
-      </ModalForm>
-    </Modal>
+        {error ? <p className="error-text">{error}</p> : null}
+        <button type="submit" className="btn" disabled={closed || submitting}>
+          {submitting ? 'Saving…' : `Add ${title}`}
+        </button>
+      </form>
+
+      <div className="txn-entry-list">
+        {entries.length === 0 ? (
+          <p className="txn-entry-empty">No {title.toLowerCase()} entries yet.</p>
+        ) : (
+          entries.map((t) => (
+            <div className="txn-entry-row" key={t.id}>
+              <span className="txn-entry-name">{t.description}</span>
+              <span className="txn-entry-amount">{formatINR(t.amountPaise)}</span>
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                disabled={closed || deletingId === t.id}
+                onClick={() => void handleDelete(t.id, t.description)}
+              >
+                {deletingId === t.id ? '…' : '×'}
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   )
 }
 

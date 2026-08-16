@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import PageShell from './PageShell'
+import Loader from './Loader'
 import type { ReactNode } from 'react'
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -8,11 +8,9 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <PageShell>
-        <section className="hero-card">
-          <p className="tagline">Loading...</p>
-        </section>
-      </PageShell>
+      <div className="app-shell">
+        <Loader fullPage label="Loading FuelSNC…" />
+      </div>
     )
   }
 

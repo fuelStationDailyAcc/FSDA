@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   createExpenseCategory,
   createPaymentMethod,
@@ -13,13 +14,19 @@ import {
   type PaymentMethod,
 } from '../api/accounts'
 import { formatRate, paiseToInput } from '../lib/money'
+import Loader from '../components/Loader'
+import { useAuth } from '../context/AuthContext'
 
 function SettingsPage() {
+  const { deleteAccount } = useAuth()
+  const navigate = useNavigate()
   const [products, setProducts] = useState<FuelProduct[]>([])
   const [methods, setMethods] = useState<PaymentMethod[]>([])
   const [categories, setCategories] = useState<NamedItem[]>([])
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState(false)
 
   const [productName, setProductName] = useState('')
   const [productType, setProductType] = useState('MS')
@@ -43,9 +50,10 @@ function SettingsPage() {
   }
 
   useEffect(() => {
-    void reload().catch((err) =>
-      setError(err instanceof Error ? err.message : 'Failed to load settings')
-    )
+    setLoading(true)
+    void reload()
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load settings'))
+      .finally(() => setLoading(false))
   }, [])
 
   async function handleProduct(e: FormEvent) {
@@ -99,6 +107,23 @@ function SettingsPage() {
     }
   }
 
+  async function handleDeleteAccount() {
+    const confirmed = window.confirm(
+      'Delete your account permanently? This cannot be undone.'
+    )
+    if (!confirmed) return
+
+    setError('')
+    setDeleting(true)
+    try {
+      await deleteAccount()
+      navigate('/login', { replace: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete account')
+      setDeleting(false)
+    }
+  }
+
   return (
     <div>
       <section className="panel">
@@ -110,6 +135,10 @@ function SettingsPage() {
         {message ? <p className="diff-pos">{message}</p> : null}
       </section>
 
+      {loading ? <Loader fullPage label="Loading settings…" /> : null}
+
+      {!loading ? (
+      <>
       <section className="panel">
         <h2 className="panel-title">Fuel Products</h2>
         <form className="filters" onSubmit={handleProduct}>
@@ -211,7 +240,6 @@ function SettingsPage() {
               <option value="cash">Cash</option>
               <option value="credit">Credit</option>
               <option value="online">Online</option>
-              <option value="upi">UPI</option>
               <option value="card">Card</option>
               <option value="other">Other</option>
             </select>
@@ -297,6 +325,23 @@ function SettingsPage() {
           </table>
         </div>
       </section>
+
+      <section className="panel">
+        <h2 className="panel-title">Account</h2>
+        <p className="muted" style={{ marginBottom: 14 }}>
+          Permanently delete your login. Station records already entered stay in the system.
+        </p>
+        <button
+          type="button"
+          className="btn-danger"
+          disabled={deleting}
+          onClick={() => void handleDeleteAccount()}
+        >
+          {deleting ? 'Deleting…' : 'Delete account'}
+        </button>
+      </section>
+      </>
+      ) : null}
     </div>
   )
 }

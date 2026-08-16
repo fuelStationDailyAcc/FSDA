@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  deleteAccountRequest,
   loginRequest,
   logoutRequest,
   meRequest,
@@ -18,8 +19,14 @@ type AuthContextValue = {
   user: AuthUser | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (username: string, email: string, password: string) => Promise<void>
+  register: (
+    username: string,
+    email: string,
+    password: string,
+    stationName: string
+  ) => Promise<void>
   logout: () => Promise<void>
+  deleteAccount: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -72,14 +79,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         persistSession(payload.data.user, payload.data.accessToken)
         setUser(payload.data.user)
       },
-      async register(username, email, password) {
-        const payload = await registerRequest({ username, email, password })
+      async register(username, email, password, stationName) {
+        const payload = await registerRequest({
+          username,
+          email,
+          password,
+          stationName,
+        })
         persistSession(payload.data.user, payload.data.accessToken)
         setUser(payload.data.user)
       },
       async logout() {
         try {
           await logoutRequest()
+        } finally {
+          clearSession()
+          setUser(null)
+        }
+      },
+      async deleteAccount() {
+        try {
+          await deleteAccountRequest()
         } finally {
           clearSession()
           setUser(null)
