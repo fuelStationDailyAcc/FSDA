@@ -13,11 +13,14 @@ import {
 } from '../api/accounts'
 import { formatRate, paiseToInput } from '../lib/money'
 import Loader from '../components/Loader'
+import ThemeToggle from '../components/ThemeToggle'
 import { useAuth } from '../context/AuthContext'
+import { usePwaInstall } from '../hooks/usePwaInstall'
 import { hasPermission, isOwner } from '../lib/permissions'
 
 function SettingsPage() {
   const { deleteAccount, user } = useAuth()
+  const { canInstall, installed, isIos, install } = usePwaInstall()
   const navigate = useNavigate()
   const canWrite = hasPermission(user, 'settings.write')
   const owner = isOwner(user)
@@ -141,6 +144,38 @@ function SettingsPage() {
         </p>
         {error ? <p className="error-text">{error}</p> : null}
         {message ? <p className="diff-pos">{message}</p> : null}
+      </section>
+
+      <section className="panel">
+        <h2 className="panel-title">Appearance</h2>
+        <p className="muted" style={{ marginBottom: 14 }}>
+          Choose a color theme for this device. This only changes how the app looks for you.
+        </p>
+        <ThemeToggle />
+      </section>
+
+      <section className="panel">
+        <h2 className="panel-title">Install app</h2>
+        {installed ? (
+          <p className="muted">FuelSNC is installed on this device.</p>
+        ) : canInstall ? (
+          <>
+            <p className="muted" style={{ marginBottom: 14 }}>
+              Add FuelSNC to your home screen for faster access and a full-screen layout.
+            </p>
+            <button type="button" className="btn" onClick={() => void install()}>
+              Install FuelSNC
+            </button>
+          </>
+        ) : isIos ? (
+          <p className="muted">
+            On iPhone or iPad, tap the Share button in Safari, then choose Add to Home Screen.
+          </p>
+        ) : (
+          <p className="muted">
+            Use your browser’s install or Add to Home Screen option to open FuelSNC like an app.
+          </p>
+        )}
       </section>
 
       {loading ? <Loader fullPage label="Loading settings…" /> : null}

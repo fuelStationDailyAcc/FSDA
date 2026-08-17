@@ -52,8 +52,9 @@ export function calculateCashSummary(input) {
 
         const type = String(row.methodType || "").toLowerCase();
         if (type === "credit") creditPaise += amount;
-        else if (type === "online" || type === "card" || type === "upi") onlinePaise += amount;
-        else otherNonCashPaise += amount;
+        else if (type === "online" || type === "card" || type === "upi" || type === "bank") {
+            onlinePaise += amount;
+        } else otherNonCashPaise += amount;
     }
 
     const effectiveCashTaken = cashTakenPaise + cashTakenFromMethodsPaise;

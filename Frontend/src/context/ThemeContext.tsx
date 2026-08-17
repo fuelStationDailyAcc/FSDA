@@ -41,12 +41,20 @@ export function readStoredTheme(): Theme {
   return 'orange'
 }
 
+const THEME_COLORS: Record<Theme, string> = {
+  orange: '#002d56',
+  light: '#ffffff',
+  dark: '#000000',
+}
+
 export function applyTheme(theme: Theme) {
   const root = document.documentElement
   root.dataset.theme = theme
   root.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
   root.classList.toggle('dark', theme === 'dark')
   localStorage.setItem(STORAGE_KEY, theme)
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.setAttribute('content', THEME_COLORS[theme])
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

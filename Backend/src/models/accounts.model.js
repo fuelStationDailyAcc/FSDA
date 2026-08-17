@@ -37,16 +37,12 @@ const fuelMeterReadingSchema = new mongoose.Schema(
 
 const dailyPaymentCollectionSchema = new mongoose.Schema(
     {
-        dailyAccountId: { type: objectId, ref: "DailyAccount", required: true },
+        dailyAccountId: { type: objectId, ref: "DailyAccount", required: true, index: true },
         paymentMethodId: { type: objectId, ref: "PaymentMethod", required: true },
         amountPaise: { type: Number, default: 0 },
+        description: { type: String, default: "" },
     },
     { timestamps: true, collection: "daily_payment_collections" }
-);
-
-dailyPaymentCollectionSchema.index(
-    { dailyAccountId: 1, paymentMethodId: 1 },
-    { unique: true }
 );
 
 const expenseSchema = new mongoose.Schema(

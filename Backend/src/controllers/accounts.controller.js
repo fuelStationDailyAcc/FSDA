@@ -32,9 +32,18 @@ export const updateCashTaken = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, data, "Cash taken updated"));
 });
 
-export const upsertCollection = asyncHandler(async (req, res) => {
-    const data = await DailyAccountService.upsertCollection(req.body.date, req.user._id, req.body);
-    return res.status(200).json(new ApiResponse(200, data, "Collection updated"));
+export const addCollection = asyncHandler(async (req, res) => {
+    const data = await DailyAccountService.addCollection(req.body.date, req.user._id, req.body);
+    return res.status(201).json(new ApiResponse(201, data, "Collection added"));
+});
+
+export const deleteCollection = asyncHandler(async (req, res) => {
+    const data = await DailyAccountService.deleteCollection(
+        req.query.date || req.body.date,
+        req.user._id,
+        req.params.id
+    );
+    return res.status(200).json(new ApiResponse(200, data, "Collection deleted"));
 });
 
 export const updateReading = asyncHandler(async (req, res) => {

@@ -9,6 +9,9 @@
 }
 
 .auth-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 500;
@@ -16,6 +19,14 @@
   text-transform: uppercase;
   text-decoration: none;
   color: var(--muted);
+}
+
+.auth-back-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .auth-back:hover {

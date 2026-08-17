@@ -163,3 +163,114 @@ html[data-theme='orange'] .theme-grid {
   outline: 2px solid var(--fg);
   outline-offset: 3px;
 }
+
+.theme-picker {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.theme-picker-option {
+  display: flex;
+  flex: 1 1 160px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  width: auto;
+  max-width: none;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-picker-option:hover {
+  background: var(--hover);
+}
+
+.theme-picker-option.is-selected {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+
+.theme-picker-option:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.theme-picker-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+}
+
+.theme-picker-swatch-orange {
+  background: #f58220;
+  border-color: #002d56;
+}
+
+.theme-picker-swatch-light {
+  background: #ffffff;
+  border-color: #111111;
+}
+
+.theme-picker-swatch-dark {
+  background: #111111;
+  border-color: #ffffff;
+}
+
+.theme-picker-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.theme-picker-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.theme-picker-hint {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.pwa-banner {
+  position: fixed;
+  z-index: 80;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 420px;
+  margin-left: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 12px 32px var(--overlay);
+}
+
+.pwa-banner p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pwa-banner-actions {
+  display: flex;
+  gap: 8px;
+}

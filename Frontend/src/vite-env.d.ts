@@ -1,4 +1,9 @@
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/react" />
+
+interface Navigator {
+  standalone?: boolean
+}
 
 interface ImportMetaEnv {
   readonly VITE_BACKEND_URL: string

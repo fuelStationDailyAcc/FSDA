@@ -34,7 +34,8 @@ import {
     updateProduct,
     updateReading,
     updateVendor,
-    upsertCollection,
+    addCollection,
+    deleteCollection,
 } from "../controllers/accounts.controller.js";
 
 const router = Router();
@@ -44,7 +45,8 @@ router.use(verifyJWT);
 router.get("/history", requirePermission("accounts.read"), listDailyAccounts);
 router.get("/daily", requirePermission("accounts.read"), getDailyAccount);
 router.patch("/daily/cash-taken", requirePermission("accounts.write"), updateCashTaken);
-router.put("/daily/collections", requirePermission("accounts.write"), upsertCollection);
+router.post("/daily/collections", requirePermission("accounts.write"), addCollection);
+router.delete("/daily/collections/:id", requirePermission("accounts.write"), deleteCollection);
 router.post("/daily/readings", requirePermission("accounts.write"), addReading);
 router.patch("/daily/readings/:id", requirePermission("accounts.write"), updateReading);
 router.post("/daily/expenses", requirePermission("accounts.write"), addExpense);

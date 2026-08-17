@@ -2,14 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700;800&family=Montserrat:wght@500;700;800&display=swap"
       rel="stylesheet"
     />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Ledger, meters, and station operations for FuelSNC Daily Accounts."
+    />
+    <meta name="theme-color" content="#002d56" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="FuelSNC" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>FuelSNC Daily Accounts</title>
     <script>
       (function () {
@@ -20,6 +31,9 @@
           document.documentElement.dataset.theme = theme
           document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
           document.documentElement.classList.toggle('dark', theme === 'dark')
+          var colors = { orange: '#002d56', light: '#ffffff', dark: '#000000' }
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', colors[theme] || colors.orange)
         } catch (e) {}
       })()
     </script>

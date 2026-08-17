@@ -1,8 +1,8 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import heroBg from '../assets/hero-bg.png'
+import BrandLogo from './BrandLogo'
 import { useAuth } from '../context/AuthContext'
 import { hasPermission, isOwner } from '../lib/permissions'
-import ThemeToggle from './ThemeToggle'
 import './AppShell.css'
 
 function AppShell() {
@@ -21,8 +21,11 @@ function AppShell() {
       <div className="theme-grid" aria-hidden="true" />
       <header className="app-topbar">
         <div className="app-brand">
-          <span className="app-brand-mark">FuelSNC</span>
-          <span className="app-brand-sub">Daily Accounts</span>
+          <BrandLogo className="app-brand-logo" alt="" size={40} />
+          <div className="app-brand-copy">
+            <span className="app-brand-mark">FuelSNC</span>
+            <span className="app-brand-sub">Daily Accounts</span>
+          </div>
         </div>
         <nav className="app-nav" aria-label="Main">
           <NavLink to="/dashboard" end>
@@ -39,7 +42,6 @@ function AppShell() {
           {owner && user?.role !== 'staff' ? <NavLink to="/staff">Staff</NavLink> : null}
         </nav>
         <div className="app-user">
-          <ThemeToggle />
           <span className="app-user-name">{user?.username}</span>
           <button type="button" className="btn-ghost" onClick={handleLogout}>
             Log out

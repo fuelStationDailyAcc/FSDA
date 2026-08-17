@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { hasPermission, isOwner } from '../lib/permissions'
-import ThemeToggle from '../components/ThemeToggle'
 
 function DashboardPage() {
   const { user } = useAuth()
@@ -10,14 +9,11 @@ function DashboardPage() {
   return (
     <div>
       <section className="panel">
-        <div className="panel-head">
-          <h1 className="page-title">
-            {user?.stationName
-              ? `Welcome to ${user.stationName}`
-              : `Welcome, ${user?.username}`}
-          </h1>
-          <ThemeToggle />
-        </div>
+        <h1 className="page-title">
+          {user?.stationName
+            ? `Welcome to ${user.stationName}`
+            : `Welcome, ${user?.username}`}
+        </h1>
         <p className="muted" style={{ marginTop: 8 }}>
           FuelSNC Daily Accounts — enter meter readings, expenses, and ledger entries for each
           accounting day.

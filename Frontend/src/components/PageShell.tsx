@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import heroBg from '../assets/hero-bg.png'
-import ThemeToggle from './ThemeToggle'
+import BrandLogo from './BrandLogo'
 import '../pages/HeroPage.css'
 
 function PageShell({ children }: { children: ReactNode }) {
@@ -10,10 +10,12 @@ function PageShell({ children }: { children: ReactNode }) {
       <div className="theme-grid" aria-hidden="true" />
       <header className="hero-topbar">
         <div className="hero-brand">
-          <span className="hero-brand-mark">FuelSNC</span>
-          <span className="hero-brand-sub">Daily Accounts</span>
+          <BrandLogo className="hero-brand-logo" alt="" size={40} />
+          <div className="hero-brand-copy">
+            <span className="hero-brand-mark">FuelSNC</span>
+            <span className="hero-brand-sub">Daily Accounts</span>
+          </div>
         </div>
-        <ThemeToggle />
       </header>
       {children}
     </main>

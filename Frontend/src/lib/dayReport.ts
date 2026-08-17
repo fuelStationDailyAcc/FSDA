@@ -95,12 +95,21 @@ export function buildDayReportCsv(
 
   lines.push(row('Daily Cash Summary'))
   lines.push(row('Total Sale', rupees(data.cashSummary.totalFuelSalePaise)))
-  for (const c of data.collections) {
-    const isCredit =
-      String(c.methodType || '').toLowerCase() === 'credit' ||
-      String(c.code || '').toLowerCase() === 'credit'
-    if (isCredit) continue
-    lines.push(row(c.name, rupees(c.amountPaise)))
+  const collections = data.collections.filter((c) => {
+    const type = String(c.methodType || '').toLowerCase()
+    const code = String(c.code || '').toLowerCase()
+    return type !== 'credit' && code !== 'credit'
+  })
+  const methodNames = [...new Set(collections.map((c) => c.name))]
+  for (const name of methodNames) {
+    const rows = collections.filter((c) => c.name === name)
+    lines.push(row(name))
+    for (const c of rows) {
+      lines.push(row(c.description || name, rupees(c.amountPaise)))
+    }
+    lines.push(
+      row(`Total ${name}`, rupees(rows.reduce((sum, c) => sum + c.amountPaise, 0)))
+    )
   }
   lines.push(row('Expense', rupees(data.cashSummary.totalExpensePaise)))
   lines.push(row('Total Cash', rupees(data.cashSummary.totalCashPaise)))

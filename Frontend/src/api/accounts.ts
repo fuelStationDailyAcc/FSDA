@@ -80,6 +80,7 @@ export type PaymentCollection = {
   methodType: string
   reducesCash: boolean
   isCashTaken: boolean
+  description: string
   amountPaise: number
 }
 
@@ -207,14 +208,21 @@ export async function addReading(date: string, productId: string) {
   })
 }
 
-export async function upsertCollection(
+export async function addCollection(
   date: string,
   paymentMethodId: string,
-  amountRupees: number | string
+  amountRupees: number | string,
+  description = ""
 ) {
   return apiRequest<DailyAccountPayload>(`/accounts/daily/collections`, {
-    method: "PUT",
-    body: JSON.stringify({ date, paymentMethodId, amountRupees }),
+    method: "POST",
+    body: JSON.stringify({ date, paymentMethodId, amountRupees, description }),
+  })
+}
+
+export async function deleteCollection(date: string, id: string) {
+  return apiRequest<DailyAccountPayload>(`/accounts/daily/collections/${id}${qs({ date })}`, {
+    method: "DELETE",
   })
 }
 

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { DB_NAME } from "../constants.js";
 import { seedDefaults } from "./seed.js";
 import { UserModel } from "../models/user.model.js";
+import { DailyPaymentCollection } from "../models/accounts.model.js";
 
 mongoose.set("strictQuery", true);
 
@@ -30,6 +31,16 @@ export async function connectDB() {
             // Index may already be gone.
         }
         await UserModel.syncIndexes();
+    }
+    try {
+        await DailyPaymentCollection.collection.dropIndex("dailyAccountId_1_paymentMethodId_1");
+    } catch {
+        // Unique one-row-per-method index may already be gone.
+    }
+    try {
+        await DailyPaymentCollection.syncIndexes();
+    } catch (error) {
+        console.warn("Payment collection index sync failed:", error.message);
     }
     await seedDefaults();
     const { host, name } = mongoose.connection;

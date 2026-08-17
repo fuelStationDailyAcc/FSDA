@@ -10,27 +10,29 @@ import {
 } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
+  addCollection,
   addExpense,
   addReading,
   addTransaction,
   closeDay,
+  deleteCollection,
   deleteTransaction,
   fetchDailyAccount,
   fetchLedgerNames,
+  fetchPaymentMethods,
   fetchProducts,
   fetchCustomers,
   fetchVendors,
   createCustomer,
   createVendor,
   reopenDay,
-  updateCashTaken,
   updateReading,
-  upsertCollection,
   type DailyAccountPayload,
   type LedgerTxn,
   type MeterReading,
   type Party,
   type FuelProduct,
+  type PaymentMethod,
 } from '../api/accounts'
 import { Modal, ModalForm } from '../components/Modal'
 import Loader from '../components/Loader'
@@ -44,7 +46,6 @@ import {
   formatINRFloor,
   formatLitres,
   formatRate,
-  paiseToInput,
   shiftDate,
   todayISO,
 } from '../lib/money'
@@ -55,13 +56,6 @@ type ReadingDraft = Partial<Record<'newReading' | 'oldReading' | 'testingLitres'
 
 type FuelSaveHandle = {
   getChanges: () => Array<{ id: string; patch: Record<string, string | number> }>
-}
-
-type CashSaveHandle = {
-  getChanges: () => {
-    collections: Array<{ paymentMethodId: string; amountRupees: string }>
-    cashTaken: string | null
-  }
 }
 
 function isReadingDirty(reading: MeterReading, draft?: ReadingDraft) {
@@ -80,6 +74,52 @@ function isCreditCollection(row: { methodType?: string; code?: string; name?: st
   )
 }
 
+function isCashMethod(row: { methodType?: string; code?: string }) {
+  return (
+    String(row.methodType || '').toLowerCase() === 'cash' ||
+    String(row.code || '').toLowerCase() === 'cash'
+  )
+}
+
+const METHOD_TYPE_ORDER = ['card', 'online', 'bank']
+
+function collectionMethodSections(
+  methods: PaymentMethod[],
+  collections: DailyAccountPayload['collections']
+) {
+  const byId = new Map<string, PaymentMethod>()
+  for (const method of methods) byId.set(method.id, method)
+  for (const row of collections) {
+    if (byId.has(row.paymentMethodId)) continue
+    byId.set(row.paymentMethodId, {
+      id: row.paymentMethodId,
+      name: row.name,
+      code: row.code,
+      methodType: row.methodType,
+      reducesCash: row.reducesCash,
+      isCashTaken: row.isCashTaken,
+      isActive: true,
+    })
+  }
+  return [...byId.values()]
+    .filter((method) => {
+      if (!method.reducesCash || method.isCashTaken) return false
+      if (isCreditCollection(method) || isCashMethod(method)) return false
+      const type = String(method.methodType || '').toLowerCase()
+      const known = METHOD_TYPE_ORDER.includes(type)
+      const hasEntries = collections.some((row) => row.paymentMethodId === method.id)
+      return known || hasEntries
+    })
+    .sort((a, b) => {
+      const ai = METHOD_TYPE_ORDER.indexOf(String(a.methodType || '').toLowerCase())
+      const bi = METHOD_TYPE_ORDER.indexOf(String(b.methodType || '').toLowerCase())
+      const ao = ai === -1 ? 99 : ai
+      const bo = bi === -1 ? 99 : bi
+      if (ao !== bo) return ao - bo
+      return a.name.localeCompare(b.name)
+    })
+}
+
 function isISODate(value: string | null) {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value))
 }
@@ -93,6 +133,7 @@ function DailyAccountsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [products, setProducts] = useState<FuelProduct[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [customers, setCustomers] = useState<Party[]>([])
   const [vendors, setVendors] = useState<Party[]>([])
 
@@ -102,17 +143,15 @@ function DailyAccountsPage() {
   const [actualCash, setActualCash] = useState('')
   const [busy, setBusy] = useState(false)
   const [readingsDirty, setReadingsDirty] = useState(false)
-  const [cashDirty, setCashDirty] = useState(false)
   const [liveFuelSalesPaise, setLiveFuelSalesPaise] = useState<number | null>(null)
 
   const fuelSaveRef = useRef<FuelSaveHandle>(null)
-  const cashSaveRef = useRef<CashSaveHandle>(null)
 
   const closed = data?.account.status === 'closed'
   const canWrite = hasPermission(user, 'accounts.write')
   const owner = isOwner(user)
   const locked = Boolean(closed || !canWrite)
-  const dirty = readingsDirty || cashDirty
+  const dirty = readingsDirty
   const fuelSalesPaise = liveFuelSalesPaise ?? data?.kpis.totalFuelSalesPaise ?? 0
   const closingCashPaise =
     (data?.kpis.closingCashPaise ?? 0) +
@@ -138,10 +177,12 @@ function DailyAccountsPage() {
   useEffect(() => {
     void Promise.all([
       fetchProducts(true),
+      fetchPaymentMethods(true),
       fetchCustomers(),
       fetchVendors(),
-    ]).then(([p, c, v]) => {
+    ]).then(([p, m, c, v]) => {
       setProducts(p.data)
+      setPaymentMethods(m.data)
       setCustomers(c.data)
       setVendors(v.data)
     })
@@ -168,21 +209,9 @@ function DailyAccountsPage() {
     setError('')
     try {
       const readingChanges = fuelSaveRef.current?.getChanges() ?? []
-      const cashChanges = cashSaveRef.current?.getChanges() ?? {
-        collections: [],
-        cashTaken: null,
-      }
       let latest: DailyAccountPayload | null = null
       for (const change of readingChanges) {
         const res = await updateReading(date, change.id, change.patch)
-        latest = res.data
-      }
-      for (const row of cashChanges.collections) {
-        const res = await upsertCollection(date, row.paymentMethodId, row.amountRupees)
-        latest = res.data
-      }
-      if (cashChanges.cashTaken != null) {
-        const res = await updateCashTaken(date, cashChanges.cashTaken)
         latest = res.data
       }
       if (latest) applyDay(latest)
@@ -370,7 +399,7 @@ function DailyAccountsPage() {
             }}
           />
 
-          <div className="two-col expenses-cash-row">
+          <div className="expenses-cash-row">
             <ExpensesSection
               expenses={data.expenses}
               total={data.kpis.totalExpensesPaise}
@@ -378,11 +407,17 @@ function DailyAccountsPage() {
               onAdd={() => setExpenseOpen(true)}
             />
             <CashSummarySection
-              ref={cashSaveRef}
               data={data}
-              liveFuelSalesPaise={fuelSalesPaise}
+              methods={paymentMethods}
               closed={locked}
-              onDirtyChange={setCashDirty}
+              onAdd={async (paymentMethodId, amountRupees, description) => {
+                const res = await addCollection(date, paymentMethodId, amountRupees, description)
+                applyDay(res.data)
+              }}
+              onDelete={async (id) => {
+                const res = await deleteCollection(date, id)
+                applyDay(res.data)
+              }}
             />
           </div>
 
@@ -735,136 +770,146 @@ const FuelReadingsSection = forwardRef<
   )
 })
 
-const CashSummarySection = forwardRef<
-  CashSaveHandle,
-  {
-    data: DailyAccountPayload
-    liveFuelSalesPaise: number
-    closed: boolean
-    onDirtyChange: (dirty: boolean) => void
-  }
->(function CashSummarySection({ data, liveFuelSalesPaise, closed, onDirtyChange }, ref) {
-  const [cashTaken, setCashTaken] = useState(paiseToInput(data.account.cashTakenPaise))
-  const [amounts, setAmounts] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    setCashTaken((prev) => {
-      const saved = paiseToInput(data.account.cashTakenPaise)
-      return Number(prev || 0) !== Number(saved) ? prev : saved
-    })
-    setAmounts((prev) => {
-      const next: Record<string, string> = {}
-      for (const c of data.collections) {
-        const saved = paiseToInput(c.amountPaise)
-        const existing = prev[c.paymentMethodId]
-        next[c.paymentMethodId] =
-          existing != null && Number(existing || 0) !== Number(saved) ? existing : saved
-      }
-      return next
-    })
-  }, [data])
-
-  const displayRows = data.collections.filter(
-    (c) => !c.isCashTaken && !isCreditCollection(c)
-  )
-  const cashTakenRows = data.collections.filter((c) => c.isCashTaken)
-
-  const dirty = useMemo(() => {
-    if (Number(cashTaken || 0) !== Number(paiseToInput(data.account.cashTakenPaise))) {
-      return true
-    }
-    return data.collections.some(
-      (row) =>
-        !isCreditCollection(row) &&
-        Number(amounts[row.paymentMethodId] || 0) !== Number(paiseToInput(row.amountPaise))
-    )
-  }, [amounts, cashTaken, data.account.cashTakenPaise, data.collections])
-
-  useEffect(() => {
-    onDirtyChange(dirty)
-    return () => onDirtyChange(false)
-  }, [dirty, onDirtyChange])
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      getChanges() {
-        if (closed) return { collections: [], cashTaken: null }
-        const collections = data.collections.flatMap((row) => {
-          if (isCreditCollection(row)) return []
-          const value = amounts[row.paymentMethodId] || '0'
-          if (Number(value) === Number(paiseToInput(row.amountPaise))) return []
-          return [{ paymentMethodId: row.paymentMethodId, amountRupees: value }]
-        })
-        const savedCashTaken = paiseToInput(data.account.cashTakenPaise)
-        const cashTakenChanged =
-          Number(cashTaken || 0) !== Number(savedCashTaken) ? cashTaken || '0' : null
-        return { collections, cashTaken: cashTakenChanged }
-      },
-    }),
-    [amounts, cashTaken, closed, data]
-  )
-
-  const saleDelta = liveFuelSalesPaise - data.cashSummary.totalFuelSalePaise
-  const totalCashPaise = data.cashSummary.totalCashPaise + saleDelta
-  const closingCashPaise = data.cashSummary.expectedClosingCashPaise + saleDelta
+function CashSummarySection({
+  data,
+  methods,
+  closed,
+  onAdd,
+  onDelete,
+}: {
+  data: DailyAccountPayload
+  methods: PaymentMethod[]
+  closed: boolean
+  onAdd: (paymentMethodId: string, amountRupees: string, description: string) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const sections = collectionMethodSections(methods, data.collections)
 
   return (
-    <section className="panel">
-      <h2 className="panel-title">Daily Cash Summary</h2>
-      <div className="summary-list">
-        <div className="summary-row">
-          <span>Total Sale</span>
-          <span>{formatINRFloor(liveFuelSalesPaise)}</span>
-        </div>
-        {displayRows.map((row) => (
-          <div className="summary-row" key={row.paymentMethodId}>
-            <span>{row.name}</span>
-            <input
-              disabled={closed}
-              value={amounts[row.paymentMethodId] ?? ''}
-              onChange={(e) =>
-                setAmounts((prev) => ({ ...prev, [row.paymentMethodId]: e.target.value }))
-              }
-            />
-          </div>
-        ))}
-        <div className="summary-row">
-          <span>Expense</span>
-          <span>{formatINR(data.cashSummary.totalExpensePaise)}</span>
-        </div>
-        <div className="summary-row total">
-          <span>Total Cash</span>
-          <span>{formatINRFloor(totalCashPaise)}</span>
-        </div>
-        <div className="summary-row">
-          <span>Cash Taken</span>
+    <>
+      {sections.map((method) => (
+        <CollectionMethodBox
+          key={method.id}
+          method={method}
+          entries={data.collections.filter((row) => row.paymentMethodId === method.id)}
+          closed={closed}
+          onAdd={onAdd}
+          onDelete={onDelete}
+        />
+      ))}
+    </>
+  )
+}
+
+function CollectionMethodBox({
+  method,
+  entries,
+  closed,
+  onAdd,
+  onDelete,
+}: {
+  method: PaymentMethod
+  entries: DailyAccountPayload['collections']
+  closed: boolean
+  onAdd: (paymentMethodId: string, amountRupees: string, description: string) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [note, setNote] = useState('')
+  const [amount, setAmount] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const totalPaise = entries.reduce((sum, row) => sum + row.amountPaise, 0)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!(Number(amount) > 0)) return setError('Amount must be greater than 0')
+    if (closed) return setError('This day cannot be edited')
+    setSubmitting(true)
+    try {
+      await onAdd(method.id, amount, note.trim())
+      setNote('')
+      setAmount('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDelete(id: string, label: string) {
+    if (!window.confirm(`Delete ${method.name.toLowerCase()} entry “${label}”?`)) return
+    setDeletingId(id)
+    try {
+      await onDelete(id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  return (
+    <section className="panel cash-method-box">
+      <div className="panel-head">
+        <h2 className="panel-title">{method.name}</h2>
+        <span className="txn-box-total">{formatINR(totalPaise)}</span>
+      </div>
+      <form className="cash-method-form" onSubmit={(e) => void handleSubmit(e)}>
+        <label className="field">
+          Note
           <input
-            disabled={closed}
-            value={cashTaken}
-            onChange={(e) => setCashTaken(e.target.value)}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Optional"
+            disabled={closed || submitting}
           />
-        </div>
-        {cashTakenRows.map((row) => (
-          <div className="summary-row" key={row.paymentMethodId}>
-            <span>{row.name}</span>
-            <input
-              disabled={closed}
-              value={amounts[row.paymentMethodId] ?? ''}
-              onChange={(e) =>
-                setAmounts((prev) => ({ ...prev, [row.paymentMethodId]: e.target.value }))
-              }
-            />
-          </div>
-        ))}
-        <div className="summary-row total">
-          <span>Closing Cash</span>
-          <span>{formatINRFloor(closingCashPaise)}</span>
-        </div>
+        </label>
+        <label className="field">
+          Amount
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            disabled={closed || submitting}
+            required
+          />
+        </label>
+        <button type="submit" className="btn btn-sm" disabled={closed || submitting}>
+          {submitting ? '…' : 'Add'}
+        </button>
+      </form>
+      {error ? <p className="error-text">{error}</p> : null}
+      <div className="txn-entry-list">
+        {entries.length === 0 ? (
+          <p className="txn-entry-empty">No {method.name.toLowerCase()} entries yet.</p>
+        ) : (
+          entries.map((row, index) => {
+            const label = row.description?.trim() || `${method.name} ${index + 1}`
+            return (
+              <div className="txn-entry-row" key={row.id}>
+                <span className="txn-entry-name">{label}</span>
+                <span className="txn-entry-amount">{formatINR(row.amountPaise)}</span>
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm"
+                  disabled={closed || deletingId === row.id}
+                  onClick={() => void handleDelete(row.id, label)}
+                >
+                  {deletingId === row.id ? '…' : '×'}
+                </button>
+              </div>
+            )
+          })
+        )}
       </div>
     </section>
   )
-})
+}
 
 function ExpensesSection({
   expenses,

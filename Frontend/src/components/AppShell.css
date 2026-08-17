@@ -36,7 +36,8 @@ html[data-theme='orange'] .app-bg {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 14px clamp(16px, 3vw, 28px);
+  padding: calc(14px + env(safe-area-inset-top)) max(clamp(16px, 3vw, 28px), env(safe-area-inset-right)) 14px
+    max(clamp(16px, 3vw, 28px), env(safe-area-inset-left));
   background: var(--header-bg);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(12px);
@@ -44,8 +45,24 @@ html[data-theme='orange'] .app-bg {
 }
 .app-brand {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
   min-width: 120px;
+}
+
+.app-brand-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.app-brand-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .app-brand-mark {
@@ -99,7 +116,8 @@ html[data-theme='orange'] .app-bg {
 }
 
 .app-main {
-  padding: 18px clamp(14px, 2.5vw, 28px) 40px;
+  padding: 18px max(clamp(14px, 2.5vw, 28px), env(safe-area-inset-right))
+    calc(40px + env(safe-area-inset-bottom)) max(clamp(14px, 2.5vw, 28px), env(safe-area-inset-left));
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -375,18 +393,35 @@ html[data-theme='orange'] .app-bg {
   align-items: start;
 }
 
-.credit-debit-row,
-.expenses-cash-row {
+.credit-debit-row {
   position: relative;
   z-index: 2;
-}
-
-.credit-debit-row {
   margin-bottom: 16px;
 }
 
 .expenses-cash-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.15fr) repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+  overflow: visible;
   margin-bottom: 16px;
+}
+
+.expenses-cash-row > .panel {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.expenses-cash-row .table-wrap {
+  flex: 1;
+  overflow: visible;
+}
+
+.expenses-cash-row .data-table {
+  min-width: 0;
 }
 
 .txn-quick-box {
@@ -556,6 +591,40 @@ html[data-theme='orange'] .app-bg {
   font: inherit;
   font-weight: 600;
   color: var(--fg);
+}
+
+.cash-method-box {
+  min-width: 0;
+}
+
+.cash-method-box .panel-title {
+  margin-bottom: 0;
+}
+
+.cash-method-box .txn-entry-list {
+  flex: 1;
+  max-height: none;
+}
+
+.cash-method-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.cash-method-form .field:first-child {
+  grid-column: 1 / -1;
+}
+
+.cash-method-form .field {
+  margin: 0;
+}
+
+.cash-method-form .btn {
+  min-height: 42px;
+  white-space: nowrap;
 }
 
 .muted {
@@ -755,6 +824,10 @@ html[data-theme='orange'] .app-bg {
   .three-col > :last-child {
     grid-column: 1 / -1;
   }
+
+  .expenses-cash-row {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 860px) {
@@ -773,6 +846,14 @@ html[data-theme='orange'] .app-bg {
 
   .app-user-name {
     display: none;
+  }
+
+  .cash-method-form {
+    grid-template-columns: 1fr;
+  }
+
+  .expenses-cash-row {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1072,6 +1153,11 @@ html[data-theme='orange'] .data-table input.cell-input:focus {
 
   .three-col > :last-child {
     grid-column: auto !important;
+  }
+
+  .expenses-cash-row {
+    grid-template-columns: 1fr 1fr 1fr 1fr !important;
+    align-items: stretch;
   }
 
   .table-wrap {

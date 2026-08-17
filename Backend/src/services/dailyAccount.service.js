@@ -108,6 +108,26 @@ function mapTxn(row, paymentMethod, partyName) {
     };
 }
 
+function isCreditMethod(row) {
+    return (
+        String(row.methodType || "").toLowerCase() === "credit" ||
+        String(row.code || "").toLowerCase() === "credit"
+    );
+}
+
+function collectionsWithLedgerCredit(collections, totalCreditPaise) {
+    return [
+        ...collections.filter((row) => !isCreditMethod(row)),
+        {
+            methodType: "credit",
+            code: "credit",
+            reducesCash: true,
+            isCashTaken: false,
+            amountPaise: Number(totalCreditPaise || 0),
+        },
+    ];
+}
+
 function assertOpen(account) {
     if (!account) throw new ApiError(404, "Daily account not found");
     if (account.status === "closed") {
@@ -192,19 +212,6 @@ async function ensureDailyAccount(accountDate, userId) {
         sort += 1;
     }
 
-    const methods = await PaymentMethodModel.find({
-        isActive: true,
-        $or: [{ reducesCash: true }, { isCashTaken: true }],
-    }).sort({ sortOrder: 1 });
-
-    for (const method of methods) {
-        await DailyPaymentCollection.updateOne(
-            { dailyAccountId: accountDoc._id, paymentMethodId: method._id },
-            { $setOnInsert: { amountPaise: 0 } },
-            { upsert: true }
-        );
-    }
-
     await writeAudit({
         entityType: "daily_account",
         entityId: account.id,
@@ -236,52 +243,38 @@ async function loadReadings(dailyAccountId) {
 }
 
 async function loadCollections(dailyAccountId) {
-    const collections = await DailyPaymentCollection.find({ dailyAccountId }).lean();
-    const methodIds = collections.map((row) => row.paymentMethodId).filter(Boolean);
-    const methods = await PaymentMethodModel.find({
-        _id: { $in: methodIds },
-        isActive: true,
-    })
-        .sort({ sortOrder: 1 })
+    const collections = await DailyPaymentCollection.find({ dailyAccountId })
+        .sort({ createdAt: 1 })
         .lean();
+    const methodIds = collections.map((row) => row.paymentMethodId).filter(Boolean);
+    const methods = await PaymentMethodModel.find({ _id: { $in: methodIds } }).lean();
     const methodsById = byIdMap(methods);
 
-    return methods.map((method) => {
-        const row = collections.find((item) => toId(item.paymentMethodId) === toId(method._id));
-        return {
-            id: toId(row?._id),
-            paymentMethodId: toId(method._id),
-            name: method.name,
-            code: method.code,
-            methodType: method.methodType,
-            reducesCash: method.reducesCash,
-            isCashTaken: method.isCashTaken,
-            amountPaise: Number(row?.amountPaise || 0),
-        };
-    });
+    return collections
+        .map((row) => {
+            const method = methodsById.get(toId(row.paymentMethodId));
+            if (!method) return null;
+            return {
+                id: toId(row._id),
+                paymentMethodId: toId(method._id),
+                name: method.name,
+                code: method.code,
+                methodType: method.methodType,
+                reducesCash: method.reducesCash,
+                isCashTaken: method.isCashTaken,
+                description: row.description || "",
+                amountPaise: Number(row.amountPaise || 0),
+            };
+        })
+        .filter(Boolean);
 }
 
 async function syncActivePaymentCollections(dailyAccountId) {
-    const methods = await PaymentMethodModel.find({
-        isActive: true,
-        $or: [{ reducesCash: true }, { isCashTaken: true }],
-    }).sort({ sortOrder: 1 });
-
-    for (const method of methods) {
-        await DailyPaymentCollection.updateOne(
-            { dailyAccountId, paymentMethodId: method._id },
-            { $setOnInsert: { amountPaise: 0 } },
-            { upsert: true }
-        );
-    }
-
-    const inactive = await PaymentMethodModel.find({ isActive: false }).select("_id");
-    if (inactive.length) {
-        await DailyPaymentCollection.deleteMany({
-            dailyAccountId,
-            paymentMethodId: { $in: inactive.map((method) => method._id) },
-        });
-    }
+    await DailyPaymentCollection.deleteMany({
+        dailyAccountId,
+        amountPaise: 0,
+        $or: [{ description: null }, { description: "" }, { description: { $exists: false } }],
+    });
 }
 
 async function syncActiveProductReadings(dailyAccountId, accountDate) {
@@ -473,12 +466,7 @@ async function buildDayPayload(account, filters = {}) {
         .filter((t) => t.type === "DEBIT")
         .reduce((s, t) => s + t.amountPaise, 0);
 
-    const collectionsForCash = collections.map((row) => {
-        const isCredit =
-            String(row.methodType || "").toLowerCase() === "credit" ||
-            String(row.code || "").toLowerCase() === "credit";
-        return isCredit ? { ...row, amountPaise: totalCreditPaise } : row;
-    });
+    const collectionsForCash = collectionsWithLedgerCredit(collections, totalCreditPaise);
 
     const cashSummary = calculateCashSummary({
         totalFuelSalePaise,
@@ -617,12 +605,10 @@ export const DailyAccountService = {
             const totalExpensePaise = expensesById.get(id) || 0;
             const totalCreditPaise = creditById.get(id) || 0;
             const totalDebitPaise = debitById.get(id) || 0;
-            const collections = (collectionsById.get(id) || []).map((row) => {
-                const isCredit =
-                    String(row.methodType || "").toLowerCase() === "credit" ||
-                    String(row.code || "").toLowerCase() === "credit";
-                return isCredit ? { ...row, amountPaise: totalCreditPaise } : row;
-            });
+            const collections = collectionsWithLedgerCredit(
+                collectionsById.get(id) || [],
+                totalCreditPaise
+            );
             const cashSummary = calculateCashSummary({
                 totalFuelSalePaise,
                 collections,
@@ -669,28 +655,49 @@ export const DailyAccountService = {
         return buildDayPayload(mapDaily(updated));
     },
 
-    async upsertCollection(accountDate, userId, { paymentMethodId, amountRupees }) {
+    async addCollection(accountDate, userId, { paymentMethodId, amountRupees, description }) {
         const account = await ensureDailyAccount(accountDate, userId);
         assertOpen(account);
         if (!paymentMethodId) throw new ApiError(400, "Payment method is required");
         if (!isValidObjectId(paymentMethodId)) throw new ApiError(400, "Invalid payment method");
+        const method = await PaymentMethodModel.findById(paymentMethodId);
+        if (!method || !method.isActive) throw new ApiError(400, "Payment method not found");
         const amountPaise = toPaise(amountRupees);
-        if (amountPaise < 0) throw new ApiError(400, "Amount cannot be negative");
+        if (amountPaise <= 0) throw new ApiError(400, "Amount must be greater than 0");
 
-        await DailyPaymentCollection.findOneAndUpdate(
-            { dailyAccountId: account.id, paymentMethodId },
-            { amountPaise },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
+        const created = await DailyPaymentCollection.create({
+            dailyAccountId: account.id,
+            paymentMethodId,
+            amountPaise,
+            description: String(description || "").trim(),
+        });
 
         await writeAudit({
             entityType: "daily_payment_collection",
-            entityId: account.id,
-            action: "upsert",
+            entityId: created._id,
+            action: "create",
             userId,
-            details: { paymentMethodId, amountPaise },
+            details: { paymentMethodId, amountPaise, description: created.description },
         });
 
+        return buildDayPayload(account);
+    },
+
+    async deleteCollection(accountDate, userId, collectionId) {
+        const account = await ensureDailyAccount(accountDate, userId);
+        assertOpen(account);
+        if (!isValidObjectId(collectionId)) throw new ApiError(404, "Collection not found");
+        const result = await DailyPaymentCollection.findOneAndDelete({
+            _id: collectionId,
+            dailyAccountId: account.id,
+        });
+        if (!result) throw new ApiError(404, "Collection not found");
+        await writeAudit({
+            entityType: "daily_payment_collection",
+            entityId: collectionId,
+            action: "delete",
+            userId,
+        });
         return buildDayPayload(account);
     },
 

@@ -37,14 +37,31 @@ html[data-theme='orange'] .hero-bg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px clamp(16px, 4vw, 32px);
+  padding: calc(14px + env(safe-area-inset-top)) max(clamp(16px, 4vw, 32px), env(safe-area-inset-right)) 14px
+    max(clamp(16px, 4vw, 32px), env(safe-area-inset-left));
 }
 
 .hero-brand {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
   text-decoration: none;
   color: inherit;
+}
+
+.hero-brand-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.hero-brand-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .hero-brand-mark {
@@ -102,17 +119,11 @@ html[data-theme='orange'] .hero-bg {
   color: var(--muted);
 }
 
-.pumps {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: clamp(20px, 4.2vw, 42px);
-  color: var(--fg);
-}
-
-.pump {
-  width: clamp(46px, 6.8vw, 64px);
+.hero-logo {
+  width: min(168px, 38vw);
   height: auto;
+  display: block;
+  border-radius: 50%;
 }
 
 .cta {
