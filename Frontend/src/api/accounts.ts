@@ -273,7 +273,7 @@ export async function deleteTransaction(date: string, id: string) {
   )
 }
 
-export async function closeDay(date: string, actualClosingCashRupees: number | string) {
+export async function closeDay(date: string, actualClosingCashRupees?: number | string) {
   return apiRequest<DailyAccountPayload>(`/accounts/daily/close`, {
     method: "POST",
     body: JSON.stringify({ date, actualClosingCashRupees }),
@@ -282,6 +282,13 @@ export async function closeDay(date: string, actualClosingCashRupees: number | s
 
 export async function reopenDay(date: string) {
   return apiRequest<DailyAccountPayload>(`/accounts/daily/reopen`, {
+    method: "POST",
+    body: JSON.stringify({ date }),
+  })
+}
+
+export async function resetDay(date: string) {
+  return apiRequest<DailyAccountPayload>(`/accounts/daily/reset`, {
     method: "POST",
     body: JSON.stringify({ date }),
   })

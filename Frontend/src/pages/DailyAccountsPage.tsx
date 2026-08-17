@@ -28,6 +28,7 @@ import {
   createCustomer,
   createVendor,
   reopenDay,
+  resetDay,
   updateReading,
   type DailyAccountPayload,
   type LedgerTxn,
@@ -152,8 +153,9 @@ function DailyAccountsPage() {
 
   const [closeOpen, setCloseOpen] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetBusy, setResetBusy] = useState(false)
   const [cashTakenDraft, setCashTakenDraft] = useState('')
-  const [actualClosingDraft, setActualClosingDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [readingsDirty, setReadingsDirty] = useState(false)
   const [liveFuelSalesPaise, setLiveFuelSalesPaise] = useState<number | null>(null)
@@ -180,20 +182,12 @@ function DailyAccountsPage() {
     Math.max(0, draftCashTakenPaise)
 
   function openCloseModal() {
-    setActualClosingDraft(paiseToInput(closingCashPaise))
     setConfirmClose(false)
     setCloseOpen(true)
   }
 
-  const actualClosingPaise = (() => {
-    if (actualClosingDraft.trim() === '') return null
-    const n = Math.round(Number(actualClosingDraft) * 100)
-    return Number.isFinite(n) && n >= 0 ? n : null
-  })()
-  const closePendingPaise =
-    actualClosingPaise === null ? null : Math.max(0, actualClosingPaise - closingCashPaise)
-  const closeAdvancePaise =
-    actualClosingPaise === null ? null : Math.max(0, closingCashPaise - actualClosingPaise)
+  const closePendingPaise = Math.max(0, closingCashPaise)
+  const closeAdvancePaise = Math.max(0, -closingCashPaise)
 
   const load = useCallback(async (d: string) => {
     setLoading(true)
@@ -355,6 +349,17 @@ function DailyAccountsPage() {
             >
               Download
             </button>
+            {!locked ? (
+              <button
+                type="button"
+                className="btn-danger btn-sm"
+                disabled={busy}
+                onClick={() => setResetOpen(true)}
+                title="Reset all entries for this day to zero"
+              >
+                ↺ Reset Day
+              </button>
+            ) : null}
             {!locked ? (
               <button
                 type="button"
@@ -564,29 +569,14 @@ function DailyAccountsPage() {
               </div>
               {confirmClose ? (
                 <>
-                  <div className="summary-row">
-                    <span>
-                      Actual Closing Cash
-                      <span className="summary-row-hint">Counted cash in drawer</span>
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      inputMode="decimal"
-                      value={actualClosingDraft}
-                      onChange={(e) => setActualClosingDraft(e.target.value)}
-                      aria-label="Actual closing cash"
-                      autoFocus
-                    />
-                  </div>
+
                   <div className="summary-row">
                     <span>
                       Pending
                       <span className="summary-row-hint">Amount left to take home</span>
                     </span>
-                    <span className={closePendingPaise ? 'diff-pos' : ''}>
-                      {closePendingPaise === null ? '—' : formatINR(closePendingPaise)}
+                    <span className={closePendingPaise > 0 ? 'diff-pos' : ''}>
+                      {formatINRFloor(closePendingPaise)}
                     </span>
                   </div>
                   <div className="summary-row">
@@ -594,8 +584,8 @@ function DailyAccountsPage() {
                       Advance
                       <span className="summary-row-hint">Cash taken more than expected</span>
                     </span>
-                    <span className={closeAdvancePaise ? 'diff-neg' : ''}>
-                      {closeAdvancePaise === null ? '—' : formatINR(closeAdvancePaise)}
+                    <span className={closeAdvancePaise > 0 ? 'diff-neg' : ''}>
+                      {formatINRFloor(closeAdvancePaise)}
                     </span>
                   </div>
                 </>
@@ -626,11 +616,8 @@ function DailyAccountsPage() {
                   onClick={async () => {
                     setBusy(true)
                     try {
-                      if (actualClosingPaise === null) {
-                        throw new Error('Enter the actual closing cash counted in the drawer')
-                      }
                       await persistCashTaken()
-                      const res = await closeDay(date, actualClosingDraft)
+                      const res = await closeDay(date)
                       applyDay(res.data)
                       setCloseOpen(false)
                       setConfirmClose(false)
@@ -647,6 +634,60 @@ function DailyAccountsPage() {
             )}
           </>
         ) : null}
+      </Modal>
+
+      <Modal
+        title="Reset Day to Zero"
+        open={resetOpen}
+        onClose={() => !resetBusy && setResetOpen(false)}
+      >
+        <div className="reset-modal-body">
+          <div className="reset-modal-warning">
+            <span className="reset-modal-icon">⚠️</span>
+            <p>
+              This will <strong>permanently delete</strong> all entries for{' '}
+              <strong>{formatDisplayDate(date)}</strong> and cannot be undone.
+            </p>
+          </div>
+          <ul className="reset-modal-list">
+            <li>All <strong>meter readings</strong> will be zeroed out</li>
+            <li>All <strong>expenses</strong> will be deleted</li>
+            <li>All <strong>credit &amp; debit</strong> transactions will be deleted</li>
+            <li>All <strong>payment collections</strong> will be deleted</li>
+            <li><strong>Cash taken home</strong> will be reset to ₹0</li>
+          </ul>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={resetBusy}
+              onClick={() => setResetOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              id="confirm-reset-day-btn"
+              type="button"
+              className="btn-danger"
+              disabled={resetBusy}
+              onClick={async () => {
+                setResetBusy(true)
+                setError('')
+                try {
+                  const res = await resetDay(date)
+                  applyDay(res.data)
+                  setResetOpen(false)
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Reset failed')
+                } finally {
+                  setResetBusy(false)
+                }
+              }}
+            >
+              {resetBusy ? 'Resetting…' : 'Yes, Reset Everything'}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   )
@@ -1230,21 +1271,14 @@ function ReconciliationSection({
             <span>Expected Closing Cash</span>
             <span>{formatINRFloor(expectedClosing)}</span>
           </div>
-          <div className="summary-row">
-            <span>Actual Closing Cash</span>
-            <span>
-              {data.reconciliation.actualClosingCashPaise === null
-                ? '—'
-                : formatINR(data.reconciliation.actualClosingCashPaise)}
-            </span>
-          </div>
+
           <div className="summary-row">
             <span>
               Pending
               <span className="summary-row-hint">Amount left to take home</span>
             </span>
             <span className={pending > 0 ? 'diff-pos' : ''}>
-              {formatINR(pending)}
+              {formatINRFloor(pending)}
             </span>
           </div>
           <div className="summary-row">
@@ -1253,7 +1287,7 @@ function ReconciliationSection({
               <span className="summary-row-hint">Cash taken more than expected</span>
             </span>
             <span className={advance > 0 ? 'diff-neg' : ''}>
-              {formatINR(advance)}
+              {formatINRFloor(advance)}
             </span>
           </div>
         </div>

@@ -595,6 +595,84 @@ async function buildDayPayload(account, filters = {}) {
 
     const onlineCollectionsPaise = cashSummary.onlinePaise + cashSummary.otherNonCashPaise;
 
+    // Prior days closing cash carry-forward
+    const priorAccounts = await DailyAccount.find({
+        ownerId: account.ownerId,
+        accountDate: { $lt: account.accountDate },
+    }).select("_id cashTakenPaise actualClosingCashPaise").lean();
+
+    let priorClosingCashPaise = 0;
+    if (priorAccounts.length > 0) {
+        const priorIds = priorAccounts.map((a) => a._id);
+        const [priorSales, priorExpenses, priorLedger, priorCollections] = await Promise.all([
+            FuelMeterReading.aggregate([
+                { $match: { dailyAccountId: { $in: priorIds } } },
+                { $group: { _id: "$dailyAccountId", total: { $sum: "$totalSalePaise" } } },
+            ]),
+            Expense.aggregate([
+                { $match: { dailyAccountId: { $in: priorIds } } },
+                { $group: { _id: "$dailyAccountId", total: { $sum: "$amountPaise" } } },
+            ]),
+            LedgerTransaction.aggregate([
+                { $match: { dailyAccountId: { $in: priorIds } } },
+                { $group: { _id: { dailyAccountId: "$dailyAccountId", type: "$type" }, total: { $sum: "$amountPaise" } } },
+            ]),
+            DailyPaymentCollection.aggregate([
+                { $match: { dailyAccountId: { $in: priorIds } } },
+                {
+                    $lookup: {
+                        from: "payment_methods",
+                        localField: "paymentMethodId",
+                        foreignField: "_id",
+                        as: "method",
+                    },
+                },
+                { $unwind: { path: "$method", preserveNullAndEmptyArrays: true } },
+            ]),
+        ]);
+
+        const salesMap = new Map(priorSales.map((r) => [toId(r._id), Number(r.total || 0)]));
+        const expMap = new Map(priorExpenses.map((r) => [toId(r._id), Number(r.total || 0)]));
+        const creditMap = new Map();
+        for (const r of priorLedger) {
+            if (r._id.type === "CREDIT") creditMap.set(toId(r._id.dailyAccountId), Number(r.total || 0));
+        }
+        const collMap = new Map();
+        for (const r of priorCollections) {
+            const id = toId(r.dailyAccountId);
+            if (!collMap.has(id)) collMap.set(id, []);
+            collMap.get(id).push({
+                paymentMethodId: toId(r.paymentMethodId),
+                name: r.method?.name,
+                methodType: r.method?.methodType,
+                code: r.method?.code,
+                reducesCash: r.method?.reducesCash,
+                isCashTaken: r.method?.isCashTaken,
+                amountPaise: Number(r.amountPaise || 0),
+            });
+        }
+
+        for (const pa of priorAccounts) {
+            const pid = toId(pa._id);
+            const pFuel = salesMap.get(pid) || 0;
+            const pExp = expMap.get(pid) || 0;
+            const pCred = creditMap.get(pid) || 0;
+            const pColls = collectionsWithLedgerCredit(collMap.get(pid) || [], pCred);
+            const pSummary = calculateCashSummary({
+                totalFuelSalePaise: pFuel,
+                collections: pColls,
+                totalExpensePaise: pExp,
+                cashTakenPaise: pa.cashTakenPaise,
+                actualClosingCashPaise: pa.actualClosingCashPaise,
+            });
+            priorClosingCashPaise += pSummary.expectedClosingCashPaise;
+        }
+    }
+
+    const netExpectedClosingCashPaise = priorClosingCashPaise + cashSummary.expectedClosingCashPaise;
+    const cumulativePendingPaise = Math.max(0, netExpectedClosingCashPaise);
+    const cumulativeAdvancePaise = Math.max(0, -netExpectedClosingCashPaise);
+
     return {
         account,
         readings,
@@ -620,8 +698,8 @@ async function buildDayPayload(account, filters = {}) {
             expectedClosingCashPaise: cashSummary.expectedClosingCashPaise,
             actualClosingCashPaise: cashSummary.actualClosingCashPaise,
             differencePaise: cashSummary.differencePaise,
-            pendingPaise: cashSummary.pendingPaise,
-            advancePaise: cashSummary.advancePaise,
+            pendingPaise: cumulativePendingPaise,
+            advancePaise: cumulativeAdvancePaise,
         },
     };
 }
@@ -634,18 +712,12 @@ export const DailyAccountService = {
 
     async listHistory({ ownerId, from, to, status } = {}) {
         if (!isValidObjectId(ownerId)) return [];
-        const match = { ownerId };
-        if (from || to) {
-            match.accountDate = {};
-            if (from) match.accountDate.$gte = normalizeDate(from);
-            if (to) match.accountDate.$lte = normalizeDate(to);
-        }
-        if (status === "open" || status === "closed") match.status = status;
+        
+        // Fetch all accounts for owner sorted chronologically (ascending) to build running balances
+        const allAccounts = await DailyAccount.find({ ownerId }).sort({ accountDate: 1 }).lean();
+        if (!allAccounts.length) return [];
 
-        const accounts = await DailyAccount.find(match).sort({ accountDate: -1 }).lean();
-        if (!accounts.length) return [];
-
-        const ids = accounts.map((row) => row._id);
+        const ids = allAccounts.map((row) => row._id);
 
         const [saleRows, expenseRows, ledgerRows, collectionRows] = await Promise.all([
             FuelMeterReading.aggregate([
@@ -718,7 +790,8 @@ export const DailyAccountService = {
             });
         }
 
-        return accounts.map((doc) => {
+        let runningCashPaise = 0;
+        const mappedList = allAccounts.map((doc) => {
             const account = mapDaily(doc);
             const id = account.id;
             const totalFuelSalePaise = salesById.get(id) || 0;
@@ -737,6 +810,10 @@ export const DailyAccountService = {
                 actualClosingCashPaise: account.actualClosingCashPaise,
             });
 
+            runningCashPaise += cashSummary.expectedClosingCashPaise;
+            const cumPendingPaise = Math.max(0, runningCashPaise);
+            const cumAdvancePaise = Math.max(0, -runningCashPaise);
+
             return {
                 id,
                 accountDate: account.accountDate,
@@ -752,10 +829,27 @@ export const DailyAccountService = {
                 closingCashPaise: cashSummary.expectedClosingCashPaise,
                 actualClosingCashPaise: cashSummary.actualClosingCashPaise,
                 differencePaise: cashSummary.differencePaise,
-                pendingPaise: cashSummary.pendingPaise,
-                advancePaise: cashSummary.advancePaise,
+                pendingPaise: cumPendingPaise,
+                advancePaise: cumAdvancePaise,
             };
         });
+
+        // Filter and sort according to user parameters (descending date default)
+        let filtered = mappedList;
+        if (from || to) {
+            const normFrom = from ? normalizeDate(from) : null;
+            const normTo = to ? normalizeDate(to) : null;
+            filtered = filtered.filter((row) => {
+                if (normFrom && row.accountDate < normFrom) return false;
+                if (normTo && row.accountDate > normTo) return false;
+                return true;
+            });
+        }
+        if (status === "open" || status === "closed") {
+            filtered = filtered.filter((row) => row.status === status);
+        }
+
+        return filtered.sort((a, b) => b.accountDate.localeCompare(a.accountDate));
     },
 
     async updateCashTaken(accountDate, userId, ownerId, cashTakenRupees) {
@@ -1072,15 +1166,18 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async closeDay(accountDate, userId, ownerId, { actualClosingCashRupees }) {
+    async closeDay(accountDate, userId, ownerId, { actualClosingCashRupees } = {}) {
         const account = await ensureDailyAccount(accountDate, userId, ownerId);
         if (account.status === "closed") {
             throw new ApiError(400, "Day is already closed");
         }
 
-        const actualClosingCashPaise = toPaise(actualClosingCashRupees);
         const payload = await buildDayPayload(account);
         const expected = payload.reconciliation.expectedClosingCashPaise;
+        const actualClosingCashPaise =
+            actualClosingCashRupees !== undefined && actualClosingCashRupees !== ""
+                ? toPaise(actualClosingCashRupees)
+                : expected;
         const differencePaise = actualClosingCashPaise - expected;
 
         const updated = await DailyAccount.findByIdAndUpdate(
@@ -1201,5 +1298,52 @@ export const DailyAccountService = {
             totalDebitPaise,
             totalUdhaarPaise: totalCreditPaise - totalDebitPaise,
         };
+    },
+
+    async resetDay(accountDate, userId, ownerId) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
+        assertOpen(account);
+
+        const dailyAccountId = asObjectId(account.id);
+
+        // Delete all expenses, transactions, and collections for the day
+        await Promise.all([
+            Expense.deleteMany({ dailyAccountId }),
+            LedgerTransaction.deleteMany({ dailyAccountId }),
+            DailyPaymentCollection.deleteMany({ dailyAccountId }),
+        ]);
+
+        // Reset all meter readings: set newReading = oldReading, zero out sale figures
+        const readings = await FuelMeterReading.find({ dailyAccountId }).lean();
+        await Promise.all(
+            readings.map((r) =>
+                FuelMeterReading.updateOne(
+                    { _id: r._id },
+                    {
+                        $set: {
+                            newReading: r.oldReading,
+                            litres: 0,
+                            testingLitres: 0,
+                            netLitres: 0,
+                            totalSalePaise: 0,
+                        },
+                    }
+                )
+            )
+        );
+
+        // Reset cash taken home to zero
+        await DailyAccount.findByIdAndUpdate(account.id, { cashTakenPaise: 0 });
+
+        await writeAudit({
+            entityType: "daily_account",
+            entityId: account.id,
+            action: "reset",
+            userId,
+            details: { accountDate },
+        });
+
+        const refreshed = await DailyAccount.findById(account.id).lean();
+        return buildDayPayload(mapDaily(refreshed));
     },
 };

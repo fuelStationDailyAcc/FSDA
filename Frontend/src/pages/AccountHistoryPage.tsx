@@ -140,7 +140,6 @@ function AccountHistoryPage() {
                     <th className="num">Debit</th>
                     <th className="num">Expenses</th>
                     <th className="num">Closing Cash</th>
-                    <th className="num">Actual Cash</th>
                     <th className="num">Pending</th>
                     <th className="num">Advance</th>
                     <th></th>
@@ -149,7 +148,7 @@ function AccountHistoryPage() {
                 <tbody>
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="empty-state">
+                      <td colSpan={10} className="empty-state">
                         No daily accounts yet. Create a day from Daily Accounts and it will show up
                         here.
                       </td>
@@ -173,9 +172,8 @@ function AccountHistoryPage() {
                         <td className="num">{formatINR(row.totalDebitPaise)}</td>
                         <td className="num">{formatINR(row.totalExpensesPaise)}</td>
                         <td className="num">{formatINRFloor(row.closingCashPaise)}</td>
-                        <td className="num">{formatINR(row.actualClosingCashPaise)}</td>
-                        <td className="num">{formatINR(row.pendingPaise)}</td>
-                        <td className="num">{formatINR(row.advancePaise)}</td>
+                        <td className="num">{formatINRFloor(row.pendingPaise ?? 0)}</td>
+                        <td className="num">{formatINRFloor(row.advancePaise ?? 0)}</td>
                         <td>
                           <button
                             type="button"

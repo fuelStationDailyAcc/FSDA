@@ -27,6 +27,7 @@ import {
     listTxnCategories,
     listVendors,
     reopenDay,
+    resetDay,
     updateCashTaken,
     updateCustomer,
     updateExpenseCategory,
@@ -63,6 +64,7 @@ router.delete(
 );
 router.post("/daily/close", requirePermission("accounts.write"), closeDay);
 router.post("/daily/reopen", requirePermission("accounts.write"), reopenDay);
+router.post("/daily/reset", requirePermission("accounts.write"), resetDay);
 
 router.get("/products", requireAnyPermission("accounts.read", "settings.read"), listProducts);
 router.post("/products", requirePermission("settings.write"), createProduct);

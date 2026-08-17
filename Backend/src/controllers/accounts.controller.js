@@ -125,9 +125,6 @@ export const deleteTransaction = asyncHandler(async (req, res) => {
 });
 
 export const closeDay = asyncHandler(async (req, res) => {
-    if (req.body.actualClosingCashRupees === undefined || req.body.actualClosingCashRupees === "") {
-        throw new ApiError(400, "Actual closing cash is required");
-    }
     const data = await DailyAccountService.closeDay(
         req.body.date,
         req.user._id,
@@ -145,6 +142,15 @@ export const reopenDay = asyncHandler(async (req, res) => {
         req.user.role
     );
     return res.status(200).json(new ApiResponse(200, data, "Day reopened"));
+});
+
+export const resetDay = asyncHandler(async (req, res) => {
+    const data = await DailyAccountService.resetDay(
+        req.body.date,
+        req.user._id,
+        requireStationOwnerId(req.user)
+    );
+    return res.status(200).json(new ApiResponse(200, data, "Day reset to zero"));
 });
 
 export const listProducts = asyncHandler(async (req, res) => {
