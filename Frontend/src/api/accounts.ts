@@ -28,6 +28,8 @@ export type DailyAccountPayload = {
     expectedClosingCashPaise: number
     actualClosingCashPaise: number | null
     differencePaise: number | null
+    pendingPaise: number | null
+    advancePaise: number | null
     breakdown: Array<{
       paymentMethodId: string
       name: string
@@ -54,6 +56,8 @@ export type DailyAccountPayload = {
     expectedClosingCashPaise: number
     actualClosingCashPaise: number | null
     differencePaise: number | null
+    pendingPaise: number | null
+    advancePaise: number | null
   }
 }
 
@@ -169,6 +173,8 @@ export type DailyAccountSummary = {
   closingCashPaise: number
   actualClosingCashPaise: number | null
   differencePaise: number | null
+  pendingPaise: number | null
+  advancePaise: number | null
 }
 
 export async function fetchDailyAccount(

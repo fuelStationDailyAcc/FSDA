@@ -135,7 +135,8 @@ export function buildDayReportCsv(
   lines.push(row('Cash Taken Home', rupees(data.reconciliation.cashTakenPaise)))
   lines.push(row('Expected Closing Cash', rupees(data.reconciliation.expectedClosingCashPaise)))
   lines.push(row('Actual Closing Cash', rupees(data.reconciliation.actualClosingCashPaise)))
-  lines.push(row('Difference', rupees(data.reconciliation.differencePaise)))
+  lines.push(row('Pending', rupees(data.reconciliation.pendingPaise)))
+  lines.push(row('Advance', rupees(data.reconciliation.advancePaise)))
 
   return lines.join('\r\n')
 }

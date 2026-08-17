@@ -4,7 +4,8 @@ const objectId = mongoose.Schema.Types.ObjectId;
 
 const dailyAccountSchema = new mongoose.Schema(
     {
-        accountDate: { type: String, required: true, unique: true },
+        ownerId: { type: objectId, ref: "User", required: true, index: true },
+        accountDate: { type: String, required: true, index: true },
         status: { type: String, enum: ["open", "closed"], default: "open" },
         cashTakenPaise: { type: Number, default: 0 },
         actualClosingCashPaise: { type: Number, default: null },
@@ -17,6 +18,8 @@ const dailyAccountSchema = new mongoose.Schema(
     },
     { timestamps: true, collection: "daily_accounts" }
 );
+
+dailyAccountSchema.index({ ownerId: 1, accountDate: 1 }, { unique: true });
 
 const fuelMeterReadingSchema = new mongoose.Schema(
     {
@@ -54,6 +57,7 @@ const expenseSchema = new mongoose.Schema(
         amountPaise: { type: Number, required: true, min: 1 },
         paymentMethodId: { type: objectId, ref: "PaymentMethod", default: null },
         notes: { type: String, default: null },
+        ownerId: { type: objectId, ref: "User", default: null, index: true },
         createdBy: { type: objectId, ref: "User", default: null },
     },
     { timestamps: true, collection: "expenses" }
@@ -77,13 +81,15 @@ const ledgerTransactionSchema = new mongoose.Schema(
         amountPaise: { type: Number, required: true, min: 1 },
         referenceNumber: { type: String, default: null },
         notes: { type: String, default: null },
-        idempotencyKey: { type: String, unique: true, sparse: true },
+        idempotencyKey: { type: String, sparse: true },
+        ownerId: { type: objectId, ref: "User", default: null, index: true },
         createdBy: { type: objectId, ref: "User", default: null },
     },
     { timestamps: true, collection: "ledger_transactions" }
 );
 
 ledgerTransactionSchema.index({ partyType: 1, partyId: 1 });
+ledgerTransactionSchema.index({ ownerId: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
 
 export const DailyAccount =
     mongoose.models.DailyAccount || mongoose.model("DailyAccount", dailyAccountSchema);

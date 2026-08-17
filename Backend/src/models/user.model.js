@@ -1,8 +1,18 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
-import { DailyAccount, Expense, LedgerTransaction } from "./accounts.model.js";
+import {
+    DailyAccount,
+    DailyPaymentCollection,
+    Expense,
+    FuelMeterReading,
+    LedgerTransaction,
+} from "./accounts.model.js";
 import { AuditLog } from "./auditLog.model.js";
+import { ExpenseCategoryModel, TransactionCategoryModel } from "./catalog.model.js";
+import { FuelProductModel } from "./fuelProduct.model.js";
+import { PaymentMethodModel } from "./paymentMethod.model.js";
+import { CustomerModel, VendorModel } from "./party.model.js";
 import { isValidObjectId, leanDoc, toId } from "../db/helpers.js";
 import {
     DEFAULT_STAFF_PERMISSIONS,
@@ -202,15 +212,41 @@ export const User = {
     },
 
     async deleteById(id) {
-        const staffIds = await UserModel.find({ ownerId: id }).distinct("_id");
+        const user = await UserModel.findById(id).select("_id ownerId").lean();
+        if (!user) {
+            throw new Error("User not found");
+        }
+
+        const isStationOwner = !user.ownerId;
+        const staffIds = isStationOwner
+            ? await UserModel.find({ ownerId: id }).distinct("_id")
+            : [];
         const ids = [id, ...staffIds];
 
-        await UserModel.deleteMany({ ownerId: id });
-        await DailyAccount.updateMany({ createdBy: { $in: ids } }, { $set: { createdBy: null } });
-        await DailyAccount.updateMany({ closedBy: { $in: ids } }, { $set: { closedBy: null } });
-        await DailyAccount.updateMany({ reopenedBy: { $in: ids } }, { $set: { reopenedBy: null } });
-        await Expense.updateMany({ createdBy: { $in: ids } }, { $set: { createdBy: null } });
-        await LedgerTransaction.updateMany({ createdBy: { $in: ids } }, { $set: { createdBy: null } });
+        if (isStationOwner) {
+            const dayIds = await DailyAccount.find({ ownerId: id }).distinct("_id");
+            await FuelMeterReading.deleteMany({ dailyAccountId: { $in: dayIds } });
+            await DailyPaymentCollection.deleteMany({ dailyAccountId: { $in: dayIds } });
+            await Expense.deleteMany({ $or: [{ ownerId: id }, { dailyAccountId: { $in: dayIds } }] });
+            await LedgerTransaction.deleteMany({
+                $or: [{ ownerId: id }, { dailyAccountId: { $in: dayIds } }],
+            });
+            await DailyAccount.deleteMany({ ownerId: id });
+            await CustomerModel.deleteMany({ ownerId: id });
+            await VendorModel.deleteMany({ ownerId: id });
+            await FuelProductModel.deleteMany({ ownerId: id });
+            await PaymentMethodModel.deleteMany({ ownerId: id });
+            await ExpenseCategoryModel.deleteMany({ ownerId: id });
+            await TransactionCategoryModel.deleteMany({ ownerId: id });
+            await UserModel.deleteMany({ ownerId: id });
+        } else {
+            await DailyAccount.updateMany({ createdBy: id }, { $set: { createdBy: null } });
+            await DailyAccount.updateMany({ closedBy: id }, { $set: { closedBy: null } });
+            await DailyAccount.updateMany({ reopenedBy: id }, { $set: { reopenedBy: null } });
+            await Expense.updateMany({ createdBy: id }, { $set: { createdBy: null } });
+            await LedgerTransaction.updateMany({ createdBy: id }, { $set: { createdBy: null } });
+        }
+
         await AuditLog.updateMany({ userId: { $in: ids } }, { $set: { userId: null } });
 
         const result = await UserModel.findByIdAndDelete(id);

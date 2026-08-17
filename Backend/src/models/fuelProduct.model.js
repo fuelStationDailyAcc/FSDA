@@ -3,6 +3,7 @@ import { assignIfPresent, asObjectId, isValidObjectId, leanDoc, toId } from "../
 
 const fuelProductSchema = new mongoose.Schema(
     {
+        ownerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
         name: { type: String, required: true, trim: true },
         productType: { type: String, default: "Other" },
         currentRatePaise: { type: Number, default: 0 },
@@ -31,20 +32,24 @@ function mapProduct(doc) {
 }
 
 export const FuelProduct = {
-    async list({ activeOnly = false } = {}) {
-        const filter = activeOnly ? { isActive: true } : {};
+    async list(ownerId, { activeOnly = false } = {}) {
+        if (!isValidObjectId(ownerId)) return [];
+        const filter = { ownerId };
+        if (activeOnly) filter.isActive = true;
         const rows = await FuelProductModel.find(filter).sort({ sortOrder: 1, name: 1 });
         return rows.map(mapProduct);
     },
 
-    async findById(id) {
-        if (!isValidObjectId(id)) return null;
-        const doc = await FuelProductModel.findById(id);
+    async findById(id, ownerId) {
+        if (!isValidObjectId(id) || !isValidObjectId(ownerId)) return null;
+        const doc = await FuelProductModel.findOne({ _id: id, ownerId });
         return mapProduct(doc);
     },
 
-    async create({ name, productType, currentRatePaise, sortOrder = 0 }) {
+    async create(ownerId, { name, productType, currentRatePaise, sortOrder = 0 }) {
+        if (!isValidObjectId(ownerId)) return null;
         const doc = await FuelProductModel.create({
+            ownerId,
             name: name.trim(),
             productType: productType || "Other",
             currentRatePaise: Number(currentRatePaise) || 0,
@@ -53,24 +58,31 @@ export const FuelProduct = {
         return mapProduct(doc);
     },
 
-    async update(id, { name, productType, currentRatePaise, isActive, sortOrder }) {
-        if (!isValidObjectId(id)) return null;
+    async update(id, ownerId, { name, productType, currentRatePaise, isActive, sortOrder }) {
+        if (!isValidObjectId(id) || !isValidObjectId(ownerId)) return null;
         const $set = {};
         assignIfPresent($set, "name", name, (value) => value.trim());
         assignIfPresent($set, "productType", productType);
         assignIfPresent($set, "currentRatePaise", currentRatePaise, Number);
         assignIfPresent($set, "isActive", isActive);
         assignIfPresent($set, "sortOrder", sortOrder);
-        const doc = await FuelProductModel.findByIdAndUpdate(id, { $set }, { new: true });
+        const doc = await FuelProductModel.findOneAndUpdate(
+            { _id: id, ownerId },
+            { $set },
+            { new: true }
+        );
         return mapProduct(doc);
     },
 
-    async delete(id) {
-        if (!isValidObjectId(id)) return null;
+    async delete(id, ownerId) {
+        if (!isValidObjectId(id) || !isValidObjectId(ownerId)) return null;
+        const owned = await FuelProductModel.findOne({ _id: id, ownerId }).select("_id");
+        if (!owned) return null;
+
         const productId = asObjectId(id);
         const { DailyAccount, FuelMeterReading } = await import("./accounts.model.js");
 
-        const openDays = await DailyAccount.find({ status: "open" }).select("_id");
+        const openDays = await DailyAccount.find({ ownerId, status: "open" }).select("_id");
         if (openDays.length) {
             await FuelMeterReading.deleteMany({
                 productId,
@@ -84,8 +96,8 @@ export const FuelProduct = {
 
         const inUse = await FuelMeterReading.exists({ productId });
         if (inUse) {
-            const doc = await FuelProductModel.findByIdAndUpdate(
-                id,
+            const doc = await FuelProductModel.findOneAndUpdate(
+                { _id: id, ownerId },
                 { $set: { isActive: false } },
                 { new: true }
             );
@@ -93,7 +105,7 @@ export const FuelProduct = {
             return mapped ? { ...mapped, deactivated: true } : null;
         }
 
-        const doc = await FuelProductModel.findByIdAndDelete(id);
+        const doc = await FuelProductModel.findOneAndDelete({ _id: id, ownerId });
         return mapProduct(doc);
     },
 };

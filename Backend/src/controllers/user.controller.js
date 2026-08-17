@@ -1,4 +1,5 @@
 import { User } from "../models/user.model.js";
+import { seedOwnerDefaults } from "../db/seed.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -63,6 +64,8 @@ export const registerUser = asyncHandler(async (req, res) => {
         password,
         stationName: stationName.trim(),
     });
+
+    await seedOwnerDefaults(user._id);
 
     return sendAuthResponse(res, user, "User registered successfully", 201);
 });

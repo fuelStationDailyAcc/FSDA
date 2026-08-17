@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { DB_NAME } from "../constants.js";
 import { seedDefaults } from "./seed.js";
+import { migrateTenancy } from "./migrateTenancy.js";
 import { UserModel } from "../models/user.model.js";
 import { DailyPaymentCollection } from "../models/accounts.model.js";
 
@@ -42,6 +43,7 @@ export async function connectDB() {
     } catch (error) {
         console.warn("Payment collection index sync failed:", error.message);
     }
+    await migrateTenancy();
     await seedDefaults();
     const { host, name } = mongoose.connection;
     console.log(`MongoDB connected (${host}/${name})`);

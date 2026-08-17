@@ -5,6 +5,7 @@ import { LedgerTransaction } from "./accounts.model.js";
 function createPartySchema(collection) {
     return new mongoose.Schema(
         {
+            ownerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
             name: { type: String, required: true, trim: true },
             phone: { type: String, default: null },
             notes: { type: String, default: null },
@@ -34,8 +35,9 @@ function mapParty(doc, type) {
     };
 }
 
-async function partyBalances(Model, partyType) {
-    const parties = await Model.find().sort({ name: 1 }).lean();
+async function partyBalances(Model, partyType, ownerId) {
+    if (!isValidObjectId(ownerId)) return [];
+    const parties = await Model.find({ ownerId }).sort({ name: 1 }).lean();
     const ids = parties.map((party) => party._id);
     const totals = ids.length
         ? await LedgerTransaction.aggregate([
@@ -84,12 +86,14 @@ async function partyBalances(Model, partyType) {
 }
 
 export const Customer = {
-    async list() {
-        return partyBalances(CustomerModel, "customer");
+    async list(ownerId) {
+        return partyBalances(CustomerModel, "customer", ownerId);
     },
 
-    async create({ name, phone, notes }) {
+    async create(ownerId, { name, phone, notes }) {
+        if (!isValidObjectId(ownerId)) return null;
         const doc = await CustomerModel.create({
+            ownerId,
             name: name.trim(),
             phone: phone || null,
             notes: notes || null,
@@ -97,35 +101,38 @@ export const Customer = {
         return mapParty(doc, "customer");
     },
 
-    async update(id, { name, phone, notes, isActive }) {
-        if (!isValidObjectId(id)) return null;
+    async update(id, ownerId, { name, phone, notes, isActive }) {
+        if (!isValidObjectId(id) || !isValidObjectId(ownerId)) return null;
         const $set = {};
         assignIfPresent($set, "name", name, (value) => value.trim());
         assignIfPresent($set, "phone", phone);
         assignIfPresent($set, "notes", notes);
         assignIfPresent($set, "isActive", isActive);
-        const doc = await CustomerModel.findByIdAndUpdate(id, { $set }, { new: true });
+        const doc = await CustomerModel.findOneAndUpdate({ _id: id, ownerId }, { $set }, { new: true });
         return mapParty(doc, "customer");
     },
 
-    async delete(id) {
-        if (!isValidObjectId(id)) return null;
+    async delete(id, ownerId) {
+        if (!isValidObjectId(id) || !isValidObjectId(ownerId)) return null;
+        const doc = await CustomerModel.findOneAndDelete({ _id: id, ownerId });
+        if (!doc) return null;
         await LedgerTransaction.updateMany(
-            { partyType: "customer", partyId: id },
+            { ownerId, partyType: "customer", partyId: id },
             { $set: { partyId: null } }
         );
-        const doc = await CustomerModel.findByIdAndDelete(id);
         return mapParty(doc, "customer");
     },
 };
 
 export const Vendor = {
-    async list() {
-        return partyBalances(VendorModel, "vendor");
+    async list(ownerId) {
+        return partyBalances(VendorModel, "vendor", ownerId);
     },
 
-    async create({ name, phone, notes }) {
+    async create(ownerId, { name, phone, notes }) {
+        if (!isValidObjectId(ownerId)) return null;
         const doc = await VendorModel.create({
+            ownerId,
             name: name.trim(),
             phone: phone || null,
             notes: notes || null,
@@ -133,14 +140,14 @@ export const Vendor = {
         return mapParty(doc, "vendor");
     },
 
-    async update(id, { name, phone, notes, isActive }) {
-        if (!isValidObjectId(id)) return null;
+    async update(id, ownerId, { name, phone, notes, isActive }) {
+        if (!isValidObjectId(id) || !isValidObjectId(ownerId)) return null;
         const $set = {};
         assignIfPresent($set, "name", name, (value) => value.trim());
         assignIfPresent($set, "phone", phone);
         assignIfPresent($set, "notes", notes);
         assignIfPresent($set, "isActive", isActive);
-        const doc = await VendorModel.findByIdAndUpdate(id, { $set }, { new: true });
+        const doc = await VendorModel.findOneAndUpdate({ _id: id, ownerId }, { $set }, { new: true });
         return mapParty(doc, "vendor");
     },
 };

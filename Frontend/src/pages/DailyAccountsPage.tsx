@@ -16,6 +16,7 @@ import {
   addTransaction,
   closeDay,
   deleteCollection,
+  deleteExpense,
   deleteTransaction,
   fetchDailyAccount,
   updateCashTaken,
@@ -35,7 +36,7 @@ import {
   type FuelProduct,
   type PaymentMethod,
 } from '../api/accounts'
-import { Modal, ModalForm } from '../components/Modal'
+import { Modal } from '../components/Modal'
 import Loader from '../components/Loader'
 import { downloadDayReport } from '../lib/dayReport'
 import {
@@ -149,10 +150,10 @@ function DailyAccountsPage() {
   const [customers, setCustomers] = useState<Party[]>([])
   const [vendors, setVendors] = useState<Party[]>([])
 
-  const [expenseOpen, setExpenseOpen] = useState(false)
   const [closeOpen, setCloseOpen] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [cashTakenDraft, setCashTakenDraft] = useState('')
+  const [actualClosingDraft, setActualClosingDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [readingsDirty, setReadingsDirty] = useState(false)
   const [liveFuelSalesPaise, setLiveFuelSalesPaise] = useState<number | null>(null)
@@ -177,6 +178,22 @@ function DailyAccountsPage() {
     (fuelSalesPaise - (data?.kpis.totalFuelSalesPaise ?? 0)) +
     savedCashTakenPaise -
     Math.max(0, draftCashTakenPaise)
+
+  function openCloseModal() {
+    setActualClosingDraft(paiseToInput(closingCashPaise))
+    setConfirmClose(false)
+    setCloseOpen(true)
+  }
+
+  const actualClosingPaise = (() => {
+    if (actualClosingDraft.trim() === '') return null
+    const n = Math.round(Number(actualClosingDraft) * 100)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  })()
+  const closePendingPaise =
+    actualClosingPaise === null ? null : Math.max(0, actualClosingPaise - closingCashPaise)
+  const closeAdvancePaise =
+    actualClosingPaise === null ? null : Math.max(0, closingCashPaise - actualClosingPaise)
 
   const load = useCallback(async (d: string) => {
     setLoading(true)
@@ -366,7 +383,7 @@ function DailyAccountsPage() {
                 </button>
               ) : null
             ) : canWrite ? (
-              <button type="button" className="btn-secondary" onClick={() => setCloseOpen(true)}>
+              <button type="button" className="btn-secondary" onClick={openCloseModal}>
                 Close Day
               </button>
             ) : null}
@@ -447,7 +464,14 @@ function DailyAccountsPage() {
               expenses={data.expenses}
               total={data.kpis.totalExpensesPaise}
               closed={locked}
-              onAdd={() => setExpenseOpen(true)}
+              onAdd={async (description, amountRupees) => {
+                const res = await addExpense(date, { description, amountRupees })
+                applyDay(res.data)
+              }}
+              onDelete={async (id) => {
+                const res = await deleteExpense(date, id)
+                applyDay(res.data)
+              }}
             />
             <CashSummarySection
               data={data}
@@ -474,27 +498,11 @@ function DailyAccountsPage() {
             onCashTakenSave={() => void persistCashTaken().catch((err) => {
               setError(err instanceof Error ? err.message : 'Failed to save cash taken')
             })}
-            onClose={() => setCloseOpen(true)}
+            onClose={openCloseModal}
             closed={locked}
           />
         </>
       ) : null}
-
-      <AddExpenseModal
-        open={expenseOpen}
-        onClose={() => setExpenseOpen(false)}
-        busy={busy}
-        onSave={async (body) => {
-          setBusy(true)
-          try {
-            const res = await addExpense(date, body)
-            applyDay(res.data)
-            setExpenseOpen(false)
-          } finally {
-            setBusy(false)
-          }
-        }}
-      />
 
       <Modal
         title="Daily Reconciliation"
@@ -554,6 +562,44 @@ function DailyAccountsPage() {
                 <span>Expected Closing Cash</span>
                 <span>{formatINRFloor(closingCashPaise)}</span>
               </div>
+              {confirmClose ? (
+                <>
+                  <div className="summary-row">
+                    <span>
+                      Actual Closing Cash
+                      <span className="summary-row-hint">Counted cash in drawer</span>
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={actualClosingDraft}
+                      onChange={(e) => setActualClosingDraft(e.target.value)}
+                      aria-label="Actual closing cash"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="summary-row">
+                    <span>
+                      Pending
+                      <span className="summary-row-hint">Amount left to take home</span>
+                    </span>
+                    <span className={closePendingPaise ? 'diff-pos' : ''}>
+                      {closePendingPaise === null ? '—' : formatINR(closePendingPaise)}
+                    </span>
+                  </div>
+                  <div className="summary-row">
+                    <span>
+                      Advance
+                      <span className="summary-row-hint">Cash taken more than expected</span>
+                    </span>
+                    <span className={closeAdvancePaise ? 'diff-neg' : ''}>
+                      {closeAdvancePaise === null ? '—' : formatINR(closeAdvancePaise)}
+                    </span>
+                  </div>
+                </>
+              ) : null}
             </div>
             {!confirmClose ? (
               <div className="modal-actions">
@@ -580,8 +626,11 @@ function DailyAccountsPage() {
                   onClick={async () => {
                     setBusy(true)
                     try {
+                      if (actualClosingPaise === null) {
+                        throw new Error('Enter the actual closing cash counted in the drawer')
+                      }
                       await persistCashTaken()
-                      const res = await closeDay(date, closingCashPaise / 100)
+                      const res = await closeDay(date, actualClosingDraft)
                       applyDay(res.data)
                       setCloseOpen(false)
                       setConfirmClose(false)
@@ -979,49 +1028,104 @@ function ExpensesSection({
   total,
   closed,
   onAdd,
+  onDelete,
 }: {
   expenses: DailyAccountPayload['expenses']
   total: number
   closed: boolean
-  onAdd: () => void
+  onAdd: (description: string, amountRupees: string) => Promise<void>
+  onDelete: (id: string) => Promise<void>
 }) {
+  const [description, setDescription] = useState('')
+  const [amount, setAmount] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!description.trim()) return setError('Description required')
+    if (!(Number(amount) > 0)) return setError('Amount must be greater than 0')
+    if (closed) return setError('This day cannot be edited')
+    setSubmitting(true)
+    try {
+      await onAdd(description.trim(), amount)
+      setDescription('')
+      setAmount('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDelete(id: string, label: string) {
+    if (!window.confirm(`Delete expense “${label}”?`)) return
+    setDeletingId(id)
+    try {
+      await onDelete(id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
-    <section className="panel">
+    <section className="panel cash-method-box">
       <div className="panel-head">
         <h2 className="panel-title">Daily Expenses</h2>
-        <button type="button" className="btn-secondary btn-sm" disabled={closed} onClick={onAdd}>
-          + Add Expense
+        <span className="txn-box-total">{formatINR(total)}</span>
+      </div>
+      <form className="cash-method-form" onSubmit={(e) => void handleSubmit(e)}>
+        <label className="field">
+          Expense
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Tea, cleaning"
+            disabled={closed || submitting}
+            required
+          />
+        </label>
+        <label className="field">
+          Amount
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            disabled={closed || submitting}
+            required
+          />
+        </label>
+        <button type="submit" className="btn btn-sm" disabled={closed || submitting}>
+          {submitting ? '…' : 'Add'}
         </button>
-      </div>
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Expense</th>
-              <th className="num">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {expenses.length === 0 ? (
-              <tr>
-                <td colSpan={2} className="empty-state">
-                  No expenses for this day.
-                </td>
-              </tr>
-            ) : (
-              expenses.map((e) => (
-                <tr key={e.id}>
-                  <td>{e.description}</td>
-                  <td className="num">{formatINR(e.amountPaise)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="summary-row total" style={{ marginTop: 12 }}>
-        <span>Total Expense</span>
-        <span>{formatINR(total)}</span>
+      </form>
+      {error ? <p className="error-text">{error}</p> : null}
+      <div className="txn-entry-list">
+        {expenses.length === 0 ? (
+          <p className="txn-entry-empty">No expense entries yet.</p>
+        ) : (
+          expenses.map((row) => (
+            <div className="txn-entry-row" key={row.id}>
+              <span className="txn-entry-name">{row.description}</span>
+              <span className="txn-entry-amount">{formatINR(row.amountPaise)}</span>
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                disabled={closed || deletingId === row.id}
+                onClick={() => void handleDelete(row.id, row.description)}
+              >
+                {deletingId === row.id ? '…' : '×'}
+              </button>
+            </div>
+          ))
+        )}
       </div>
     </section>
   )
@@ -1049,10 +1153,22 @@ function ReconciliationSection({
   closed: boolean
 }) {
   const expectedClosing = liveClosingCashPaise
-  const diff =
-    data.reconciliation.actualClosingCashPaise === null
-      ? null
-      : data.reconciliation.actualClosingCashPaise - expectedClosing
+  const actualClosingPaise = data.reconciliation.actualClosingCashPaise
+
+  // When day is OPEN (no actual closing yet):
+  //   Pending = expectedClosing (cash still in drawer, not yet taken home)
+  //   Advance = 0 if expectedClosing >= 0, else |expectedClosing| (took more than collected)
+  // When day is CLOSED (actual closing recorded):
+  //   Pending = actual > expected → extra cash in drawer to take
+  //   Advance = expected > actual → took more than was there
+  const pending =
+    actualClosingPaise === null
+      ? Math.max(0, expectedClosing)
+      : Math.max(0, actualClosingPaise - expectedClosing)
+  const advance =
+    actualClosingPaise === null
+      ? Math.max(0, -expectedClosing)
+      : Math.max(0, expectedClosing - actualClosingPaise)
   return (
     <section className="panel">
       <div className="panel-head">
@@ -1122,10 +1238,22 @@ function ReconciliationSection({
                 : formatINR(data.reconciliation.actualClosingCashPaise)}
             </span>
           </div>
-          <div className="summary-row total">
-            <span>Difference</span>
-            <span className={diff === null ? '' : diff === 0 ? 'diff-pos' : 'diff-neg'}>
-              {diff === null ? '—' : formatINR(diff)}
+          <div className="summary-row">
+            <span>
+              Pending
+              <span className="summary-row-hint">Amount left to take home</span>
+            </span>
+            <span className={pending > 0 ? 'diff-pos' : ''}>
+              {formatINR(pending)}
+            </span>
+          </div>
+          <div className="summary-row">
+            <span>
+              Advance
+              <span className="summary-row-hint">Cash taken more than expected</span>
+            </span>
+            <span className={advance > 0 ? 'diff-neg' : ''}>
+              {formatINR(advance)}
             </span>
           </div>
         </div>
@@ -1502,66 +1630,6 @@ function TxnQuickBox({
         )}
       </div>
     </section>
-  )
-}
-
-function AddExpenseModal({
-  open,
-  onClose,
-  busy,
-  onSave,
-}: {
-  open: boolean
-  onClose: () => void
-  busy: boolean
-  onSave: (body: Record<string, unknown>) => Promise<void>
-}) {
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [error, setError] = useState('')
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (!(Number(amount) > 0)) return setError('Amount must be greater than 0')
-    if (!description.trim()) return setError('Description required')
-    try {
-      await onSave({
-        description,
-        amountRupees: amount,
-      })
-      setDescription('')
-      setAmount('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed')
-    }
-  }
-
-  return (
-    <Modal title="Add Expense" open={open} onClose={onClose}>
-      <ModalForm
-        onSubmit={handleSubmit}
-        onCancel={onClose}
-        submitting={busy}
-        submitLabel="Save Expense"
-        error={error}
-      >
-        <label className="field span-2">
-          Expense
-          <input value={description} onChange={(e) => setDescription(e.target.value)} required />
-        </label>
-        <label className="field span-2">
-          Amount
-          <input
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            required
-          />
-        </label>
-      </ModalForm>
-    </Modal>
   )
 }
 

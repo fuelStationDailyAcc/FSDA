@@ -73,6 +73,11 @@ export function calculateCashSummary(input) {
             ? null
             : actualClosingCashPaise - expectedClosingCashPaise;
 
+    const pendingPaise =
+        differencePaise === null ? null : Math.max(0, differencePaise);
+    const advancePaise =
+        differencePaise === null ? null : Math.max(0, -differencePaise);
+
     return {
         totalFuelSalePaise,
         creditPaise,
@@ -84,6 +89,8 @@ export function calculateCashSummary(input) {
         expectedClosingCashPaise,
         actualClosingCashPaise,
         differencePaise,
+        pendingPaise,
+        advancePaise,
         breakdown,
     };
 }

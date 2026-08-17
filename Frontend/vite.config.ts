@@ -18,8 +18,8 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       VitePWA({
-        registerType: 'prompt',
-        injectRegister: false,
+        registerType: 'autoUpdate',
+        injectRegister: 'auto',
         devOptions: {
           enabled: true,
           type: 'module',

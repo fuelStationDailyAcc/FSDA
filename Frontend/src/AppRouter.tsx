@@ -11,7 +11,6 @@ import HeroPage from './pages/HeroPage'
 import PartiesPage from './pages/PartiesPage'
 import SettingsPage from './pages/SettingsPage'
 import StaffPage from './pages/StaffPage'
-import PwaUpdateBanner from './components/PwaUpdateBanner'
 import './hooks/usePwaInstall'
 
 function AppRouter() {
@@ -19,7 +18,6 @@ function AppRouter() {
     <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
-          <PwaUpdateBanner />
           <Routes>
           <Route path="/" element={<HeroPage />} />
           <Route path="/login" element={<AuthPage />} />

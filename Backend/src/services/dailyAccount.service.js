@@ -46,6 +46,7 @@ function mapDaily(doc) {
         reopenedAt: row.reopenedAt,
         reopenedBy: toId(row.reopenedBy),
         createdBy: toId(row.createdBy),
+        ownerId: toId(row.ownerId),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
     };
@@ -181,7 +182,7 @@ function byIdMap(docs) {
     return new Map(docs.map((doc) => [toId(doc._id), doc]));
 }
 
-async function findAdjacentProductReading(productId, date, direction) {
+async function findAdjacentProductReading(productId, date, direction, ownerId) {
     const isPrevious = direction === "previous";
     const result = await FuelMeterReading.aggregate([
         { $match: { productId: asObjectId(productId) } },
@@ -196,6 +197,7 @@ async function findAdjacentProductReading(productId, date, direction) {
         { $unwind: "$day" },
         {
             $match: {
+                "day.ownerId": asObjectId(ownerId),
                 "day.accountDate": isPrevious ? { $lt: date } : { $gt: date },
             },
         },
@@ -206,8 +208,8 @@ async function findAdjacentProductReading(productId, date, direction) {
     return result[0] || null;
 }
 
-async function getPreviousProductReading(productId, beforeDate) {
-    const row = await findAdjacentProductReading(productId, beforeDate, "previous");
+async function getPreviousProductReading(productId, beforeDate, ownerId) {
+    const row = await findAdjacentProductReading(productId, beforeDate, "previous", ownerId);
     return row ? Number(row.newReading) : null;
 }
 
@@ -235,8 +237,8 @@ async function applyOpeningFromPrevious(readingId, previousNewReading) {
     return true;
 }
 
-async function propagateNewReadingToNextDay(productId, fromDate, nextNewReading) {
-    const adjacent = await findAdjacentProductReading(productId, fromDate, "next");
+async function propagateNewReadingToNextDay(productId, fromDate, nextNewReading, ownerId) {
+    const adjacent = await findAdjacentProductReading(productId, fromDate, "next", ownerId);
     if (!adjacent || adjacent.day?.status === "closed") return;
 
     const doc = await FuelMeterReading.findById(adjacent._id);
@@ -259,31 +261,36 @@ async function propagateNewReadingToNextDay(productId, fromDate, nextNewReading)
     }
 }
 
-async function ensureDailyAccount(accountDate, userId) {
+async function ensureDailyAccount(accountDate, userId, ownerId) {
+    if (!isValidObjectId(ownerId)) throw new ApiError(401, "Unauthorized request");
     const date = normalizeDate(accountDate);
-    const existing = await DailyAccount.findOne({ accountDate: date });
+    const owner = asObjectId(ownerId);
+    const existing = await DailyAccount.findOne({ ownerId: owner, accountDate: date });
     if (existing) return mapDaily(existing);
 
     let accountDoc;
     try {
         accountDoc = await DailyAccount.create({
+            ownerId: owner,
             accountDate: date,
             createdBy: isValidObjectId(userId) ? userId : null,
         });
     } catch (error) {
         if (isDuplicateKeyError(error)) {
-            const raced = await DailyAccount.findOne({ accountDate: date });
+            const raced = await DailyAccount.findOne({ ownerId: owner, accountDate: date });
             if (raced) return mapDaily(raced);
         }
         throw error;
     }
 
     const account = mapDaily(accountDoc);
-    const products = await FuelProductModel.find({ isActive: true }).sort({ sortOrder: 1 });
+    const products = await FuelProductModel.find({ ownerId: owner, isActive: true }).sort({
+        sortOrder: 1,
+    });
 
     let sort = 0;
     for (const product of products) {
-        const oldReading = (await getPreviousProductReading(product._id, date)) ?? 0;
+        const oldReading = (await getPreviousProductReading(product._id, date, owner)) ?? 0;
         await FuelMeterReading.updateOne(
             { dailyAccountId: accountDoc._id, productId: product._id, meterLabel: product.name },
             {
@@ -315,15 +322,16 @@ async function ensureDailyAccount(accountDate, userId) {
     return account;
 }
 
-async function loadReadings(dailyAccountId, accountDate) {
+async function loadReadings(dailyAccountId, accountDate, ownerId) {
     const readings = await FuelMeterReading.find({ dailyAccountId }).sort({ sortOrder: 1 }).lean();
     const productIds = [...new Set(readings.map((row) => toId(row.productId)).filter(Boolean))];
     const products = await FuelProductModel.find({
         _id: { $in: productIds },
+        ownerId,
     }).lean();
     const productsById = byIdMap(products);
     const previousEntries = await Promise.all(
-        productIds.map(async (id) => [id, await getPreviousProductReading(id, accountDate)])
+        productIds.map(async (id) => [id, await getPreviousProductReading(id, accountDate, ownerId)])
     );
     const previousByProduct = new Map(previousEntries);
 
@@ -379,8 +387,11 @@ async function syncActivePaymentCollections(dailyAccountId) {
     });
 }
 
-async function syncActiveProductReadings(dailyAccountId, accountDate) {
-    const products = await FuelProductModel.find({ isActive: true }).sort({ sortOrder: 1, name: 1 });
+async function syncActiveProductReadings(dailyAccountId, accountDate, ownerId) {
+    const products = await FuelProductModel.find({ ownerId, isActive: true }).sort({
+        sortOrder: 1,
+        name: 1,
+    });
     const existing = await FuelMeterReading.find({ dailyAccountId }).lean();
     const existingProductIds = new Set(existing.map((row) => toId(row.productId)));
     let sort = existing.reduce((max, row) => Math.max(max, Number(row.sortOrder) || 0), -1);
@@ -389,7 +400,7 @@ async function syncActiveProductReadings(dailyAccountId, accountDate) {
     for (const product of products) {
         if (existingProductIds.has(toId(product._id))) continue;
 
-        const oldReading = (await getPreviousProductReading(product._id, accountDate)) ?? 0;
+        const oldReading = (await getPreviousProductReading(product._id, accountDate, ownerId)) ?? 0;
         sort += 1;
         await FuelMeterReading.updateOne(
             { dailyAccountId, productId: product._id, meterLabel: product.name },
@@ -411,7 +422,7 @@ async function syncActiveProductReadings(dailyAccountId, accountDate) {
     }
 
     for (const row of existing) {
-        const previousNew = await getPreviousProductReading(row.productId, accountDate);
+        const previousNew = await getPreviousProductReading(row.productId, accountDate, ownerId);
         await applyOpeningFromPrevious(row._id, previousNew);
 
         const product = productsById.get(toId(row.productId));
@@ -429,7 +440,7 @@ async function syncActiveProductReadings(dailyAccountId, accountDate) {
         );
     }
 
-    const inactive = await FuelProductModel.find({ isActive: false }).select("_id");
+    const inactive = await FuelProductModel.find({ ownerId, isActive: false }).select("_id");
     if (inactive.length) {
         await FuelMeterReading.deleteMany({
             dailyAccountId,
@@ -550,9 +561,9 @@ async function loadTransactions(dailyAccountId, filters = {}) {
 async function buildDayPayload(account, filters = {}) {
     await syncActivePaymentCollections(account.id);
     if (account.status !== "closed") {
-        await syncActiveProductReadings(account.id, account.accountDate);
+        await syncActiveProductReadings(account.id, account.accountDate, account.ownerId);
     }
-    const readings = await loadReadings(account.id, account.accountDate);
+    const readings = await loadReadings(account.id, account.accountDate, account.ownerId);
     const collections = await loadCollections(account.id);
     const expenses = await loadExpenses(account.id);
     const ledger = await loadTransactions(account.id, filters);
@@ -609,18 +620,21 @@ async function buildDayPayload(account, filters = {}) {
             expectedClosingCashPaise: cashSummary.expectedClosingCashPaise,
             actualClosingCashPaise: cashSummary.actualClosingCashPaise,
             differencePaise: cashSummary.differencePaise,
+            pendingPaise: cashSummary.pendingPaise,
+            advancePaise: cashSummary.advancePaise,
         },
     };
 }
 
 export const DailyAccountService = {
-    async getByDate(accountDate, userId, filters = {}) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async getByDate(accountDate, userId, ownerId, filters = {}) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         return buildDayPayload(account, filters);
     },
 
-    async listHistory({ from, to, status } = {}) {
-        const match = {};
+    async listHistory({ ownerId, from, to, status } = {}) {
+        if (!isValidObjectId(ownerId)) return [];
+        const match = { ownerId };
         if (from || to) {
             match.accountDate = {};
             if (from) match.accountDate.$gte = normalizeDate(from);
@@ -738,12 +752,14 @@ export const DailyAccountService = {
                 closingCashPaise: cashSummary.expectedClosingCashPaise,
                 actualClosingCashPaise: cashSummary.actualClosingCashPaise,
                 differencePaise: cashSummary.differencePaise,
+                pendingPaise: cashSummary.pendingPaise,
+                advancePaise: cashSummary.advancePaise,
             };
         });
     },
 
-    async updateCashTaken(accountDate, userId, cashTakenRupees) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async updateCashTaken(accountDate, userId, ownerId, cashTakenRupees) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
         const cashTakenPaise = toPaise(cashTakenRupees);
         const updated = await DailyAccount.findByIdAndUpdate(
@@ -761,12 +777,15 @@ export const DailyAccountService = {
         return buildDayPayload(mapDaily(updated));
     },
 
-    async addCollection(accountDate, userId, { paymentMethodId, amountRupees, description }) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async addCollection(accountDate, userId, ownerId, { paymentMethodId, amountRupees, description }) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
         if (!paymentMethodId) throw new ApiError(400, "Payment method is required");
         if (!isValidObjectId(paymentMethodId)) throw new ApiError(400, "Invalid payment method");
-        const method = await PaymentMethodModel.findById(paymentMethodId);
+        const method = await PaymentMethodModel.findOne({
+            _id: paymentMethodId,
+            ownerId: account.ownerId,
+        });
         if (!method || !method.isActive) throw new ApiError(400, "Payment method not found");
         const amountPaise = toPaise(amountRupees);
         if (amountPaise <= 0) throw new ApiError(400, "Amount must be greater than 0");
@@ -789,8 +808,8 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async deleteCollection(accountDate, userId, collectionId) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async deleteCollection(accountDate, userId, ownerId, collectionId) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
         if (!isValidObjectId(collectionId)) throw new ApiError(404, "Collection not found");
         const result = await DailyPaymentCollection.findOneAndDelete({
@@ -807,8 +826,8 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async updateReading(accountDate, userId, readingId, payload) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async updateReading(accountDate, userId, ownerId, readingId, payload) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
         if (!isValidObjectId(readingId)) throw new ApiError(404, "Meter reading not found");
 
@@ -820,7 +839,8 @@ export const DailyAccountService = {
 
         const previousClose = await getPreviousProductReading(
             existing.productId,
-            account.accountDate
+            account.accountDate,
+            account.ownerId
         );
         const openingFromPrevious = previousClose !== null;
         applyMeterFields(existing, {
@@ -838,7 +858,8 @@ export const DailyAccountService = {
             await propagateNewReadingToNextDay(
                 existing.productId,
                 account.accountDate,
-                Number(existing.newReading)
+                Number(existing.newReading),
+                account.ownerId
             );
         }
 
@@ -858,16 +879,17 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async addReading(accountDate, userId, { productId }) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async addReading(accountDate, userId, ownerId, { productId }) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
         if (!productId) throw new ApiError(400, "Product is required");
         if (!isValidObjectId(productId)) throw new ApiError(404, "Product not found");
 
-        const product = await FuelProductModel.findById(productId);
+        const product = await FuelProductModel.findOne({ _id: productId, ownerId: account.ownerId });
         if (!product) throw new ApiError(404, "Product not found");
 
-        const oldReading = (await getPreviousProductReading(productId, account.accountDate)) ?? 0;
+        const oldReading =
+            (await getPreviousProductReading(productId, account.accountDate, account.ownerId)) ?? 0;
         const last = await FuelMeterReading.findOne({ dailyAccountId: account.id })
             .sort({ sortOrder: -1 })
             .select("sortOrder")
@@ -891,16 +913,32 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async addExpense(accountDate, userId, payload) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async addExpense(accountDate, userId, ownerId, payload) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
 
         const amountPaise = toPaise(payload.amountRupees);
         if (amountPaise <= 0) throw new ApiError(400, "Amount must be greater than 0");
         if (!payload.description?.trim()) throw new ApiError(400, "Description is required");
 
+        if (isValidObjectId(payload.categoryId)) {
+            const category = await ExpenseCategoryModel.findOne({
+                _id: payload.categoryId,
+                ownerId: account.ownerId,
+            }).select("_id");
+            if (!category) throw new ApiError(400, "Expense category not found");
+        }
+        if (isValidObjectId(payload.paymentMethodId)) {
+            const method = await PaymentMethodModel.findOne({
+                _id: payload.paymentMethodId,
+                ownerId: account.ownerId,
+            }).select("_id");
+            if (!method) throw new ApiError(400, "Payment method not found");
+        }
+
         await Expense.create({
             dailyAccountId: account.id,
+            ownerId: account.ownerId,
             categoryId: isValidObjectId(payload.categoryId) ? payload.categoryId : null,
             description: payload.description.trim(),
             amountPaise,
@@ -922,8 +960,8 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async deleteExpense(accountDate, userId, expenseId) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async deleteExpense(accountDate, userId, ownerId, expenseId) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
         if (!isValidObjectId(expenseId)) throw new ApiError(404, "Expense not found");
         const result = await Expense.findOneAndDelete({
@@ -940,8 +978,8 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async addTransaction(accountDate, userId, payload) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async addTransaction(accountDate, userId, ownerId, payload) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
 
         const type = String(payload.type || "").toUpperCase();
@@ -956,9 +994,32 @@ export const DailyAccountService = {
 
         const txnDate = normalizeDate(payload.date || accountDate);
 
+        if (isValidObjectId(payload.partyId) && payload.partyType === "customer") {
+            const customer = await CustomerModel.findOne({
+                _id: payload.partyId,
+                ownerId: account.ownerId,
+            }).select("_id");
+            if (!customer) throw new ApiError(400, "Customer not found");
+        }
+        if (isValidObjectId(payload.partyId) && payload.partyType === "vendor") {
+            const vendor = await VendorModel.findOne({
+                _id: payload.partyId,
+                ownerId: account.ownerId,
+            }).select("_id");
+            if (!vendor) throw new ApiError(400, "Vendor not found");
+        }
+        if (isValidObjectId(payload.paymentMethodId)) {
+            const method = await PaymentMethodModel.findOne({
+                _id: payload.paymentMethodId,
+                ownerId: account.ownerId,
+            }).select("_id");
+            if (!method) throw new ApiError(400, "Payment method not found");
+        }
+
         try {
             const created = await LedgerTransaction.create({
                 dailyAccountId: account.id,
+                ownerId: account.ownerId,
                 type,
                 txnDate,
                 txnTime: payload.time || null,
@@ -993,8 +1054,8 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async deleteTransaction(accountDate, userId, transactionId) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async deleteTransaction(accountDate, userId, ownerId, transactionId) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         assertOpen(account);
         if (!isValidObjectId(transactionId)) throw new ApiError(404, "Transaction not found");
         const result = await LedgerTransaction.findOneAndDelete({
@@ -1011,8 +1072,8 @@ export const DailyAccountService = {
         return buildDayPayload(account);
     },
 
-    async closeDay(accountDate, userId, { actualClosingCashRupees }) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async closeDay(accountDate, userId, ownerId, { actualClosingCashRupees }) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         if (account.status === "closed") {
             throw new ApiError(400, "Day is already closed");
         }
@@ -1048,8 +1109,8 @@ export const DailyAccountService = {
         return buildDayPayload(mapDaily(updated));
     },
 
-    async reopenDay(accountDate, userId, userRole) {
-        const account = await ensureDailyAccount(accountDate, userId);
+    async reopenDay(accountDate, userId, ownerId, userRole) {
+        const account = await ensureDailyAccount(accountDate, userId, ownerId);
         if (account.status !== "closed") {
             throw new ApiError(400, "Day is not closed");
         }
@@ -1078,8 +1139,9 @@ export const DailyAccountService = {
         return buildDayPayload(mapDaily(updated));
     },
 
-    async listLedgerNames({ type, search } = {}) {
-        const filter = { description: { $nin: [null, ""] } };
+    async listLedgerNames(ownerId, { type, search } = {}) {
+        if (!isValidObjectId(ownerId)) return [];
+        const filter = { ownerId, description: { $nin: [null, ""] } };
 
         if (type && ["DEBIT", "CREDIT"].includes(String(type).toUpperCase())) {
             filter.type = String(type).toUpperCase();
@@ -1088,9 +1150,10 @@ export const DailyAccountService = {
             filter.description = { $regex: escapeRegex(search.trim()), $options: "i" };
         }
 
-        const partyFilter = search?.trim()
-            ? { name: { $regex: escapeRegex(search.trim()), $options: "i" } }
-            : {};
+        const partyFilter = { ownerId };
+        if (search?.trim()) {
+            partyFilter.name = { $regex: escapeRegex(search.trim()), $options: "i" };
+        }
 
         const [ledgerNames, customers, vendors] = await Promise.all([
             LedgerTransaction.distinct("description", filter),
@@ -1112,8 +1175,12 @@ export const DailyAccountService = {
         return names.slice(0, 50);
     },
 
-    async getLedgerTotals() {
+    async getLedgerTotals(ownerId) {
+        if (!isValidObjectId(ownerId)) {
+            return { totalCreditPaise: 0, totalDebitPaise: 0, totalUdhaarPaise: 0 };
+        }
         const [row] = await LedgerTransaction.aggregate([
+            { $match: { ownerId: asObjectId(ownerId) } },
             {
                 $group: {
                     _id: null,
