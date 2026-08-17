@@ -14,6 +14,15 @@ export const getDailyAccount = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, data, "Daily account fetched"));
 });
 
+export const listDailyAccounts = asyncHandler(async (req, res) => {
+    const data = await DailyAccountService.listHistory({
+        from: req.query.from,
+        to: req.query.to,
+        status: req.query.status,
+    });
+    return res.status(200).json(new ApiResponse(200, data, "Daily accounts fetched"));
+});
+
 export const updateCashTaken = asyncHandler(async (req, res) => {
     const data = await DailyAccountService.updateCashTaken(
         req.body.date,
@@ -122,6 +131,15 @@ export const updateProduct = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, data, "Product updated"));
 });
 
+export const deleteProduct = asyncHandler(async (req, res) => {
+    const data = await FuelProduct.delete(req.params.id);
+    if (!data) throw new ApiError(404, "Product not found");
+    const message = data.deactivated
+        ? "Product hidden from new days. Past meter readings were kept."
+        : "Product removed";
+    return res.status(200).json(new ApiResponse(200, data, message));
+});
+
 export const listPaymentMethods = asyncHandler(async (req, res) => {
     const data = await PaymentMethod.list({ activeOnly: req.query.activeOnly === "true" });
     return res.status(200).json(new ApiResponse(200, data, "Payment methods fetched"));
@@ -141,6 +159,12 @@ export const updatePaymentMethod = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, data, "Payment method updated"));
 });
 
+export const deletePaymentMethod = asyncHandler(async (req, res) => {
+    const data = await PaymentMethod.delete(req.params.id);
+    if (!data) throw new ApiError(404, "Payment method not found");
+    return res.status(200).json(new ApiResponse(200, data, "Payment method removed"));
+});
+
 export const listExpenseCategories = asyncHandler(async (req, res) => {
     const data = await ExpenseCategory.list({ activeOnly: req.query.activeOnly === "true" });
     return res.status(200).json(new ApiResponse(200, data, "Expense categories fetched"));
@@ -156,6 +180,12 @@ export const updateExpenseCategory = asyncHandler(async (req, res) => {
     const data = await ExpenseCategory.update(req.params.id, req.body);
     if (!data) throw new ApiError(404, "Expense category not found");
     return res.status(200).json(new ApiResponse(200, data, "Expense category updated"));
+});
+
+export const deleteExpenseCategory = asyncHandler(async (req, res) => {
+    const data = await ExpenseCategory.delete(req.params.id);
+    if (!data) throw new ApiError(404, "Expense category not found");
+    return res.status(200).json(new ApiResponse(200, data, "Expense category removed"));
 });
 
 export const listTxnCategories = asyncHandler(async (req, res) => {

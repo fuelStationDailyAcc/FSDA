@@ -7,9 +7,16 @@
   place-items: center;
   padding: clamp(20px, 4.5vw, 48px);
   overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 .hero-bg {
+  display: none;
+}
+
+html[data-theme='orange'] .hero-bg {
+  display: block;
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -19,6 +26,40 @@
   object-position: center;
   pointer-events: none;
   user-select: none;
+}
+
+.hero-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px clamp(16px, 4vw, 32px);
+}
+
+.hero-brand {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+}
+
+.hero-brand-mark {
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.04em;
+}
+
+.hero-brand-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .hero-card {
@@ -33,32 +74,32 @@
   gap: clamp(18px, 3.2vh, 34px);
   padding: clamp(28px, 6vw, 64px) clamp(24px, 5.5vw, 56px);
   text-align: center;
-  color: #002d56;
-  background: rgba(255, 255, 255, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(16, 24, 32, 0.18);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .hero-card h1 {
   margin: 0;
-  font-size: clamp(38px, 6.8vw, 68px);
-  font-weight: 800;
-  line-height: 0.98;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: #002d56;
+  font-size: clamp(42px, 8vw, 88px);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+  text-transform: none;
+  color: var(--fg);
 }
 
 .tagline {
   margin: 0;
-  max-width: 34ch;
-  font-size: clamp(15px, 2vw, 21px);
+  max-width: 42ch;
+  font-family: var(--mono);
+  font-size: clamp(12px, 1.6vw, 14px);
   font-weight: 500;
-  line-height: 1.4;
-  color: #002d56;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .pumps {
@@ -66,6 +107,7 @@
   align-items: flex-end;
   justify-content: center;
   gap: clamp(20px, 4.2vw, 42px);
+  color: var(--fg);
 }
 
 .pump {
@@ -78,27 +120,26 @@
   align-items: center;
   gap: 10px;
   margin-top: 4px;
-  padding: 13px 28px 13px 30px;
-  border: 0;
-  border-radius: 10px;
+  padding: 10px 24px;
+  border: 1px solid var(--fg);
+  border-radius: 999px;
   cursor: pointer;
-  font: inherit;
-  font-size: clamp(15px, 1.9vw, 19px);
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   text-decoration: none;
-  color: #002d56;
-  background: linear-gradient(180deg, #ffb347 0%, #f58220 62%, #e07012 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.4) inset,
-    0 7px 16px rgba(176, 88, 16, 0.4);
-  transition: transform 0.15s ease, filter 0.15s ease;
+  color: var(--btn-fg);
+  background: var(--btn-bg);
+  box-shadow: none;
+  transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
 }
 
 .cta:hover {
   transform: translateY(-1px);
-  filter: brightness(1.05);
+  filter: none;
+  opacity: 0.9;
 }
 
 .cta:active {
@@ -106,7 +147,7 @@
 }
 
 .cta:focus-visible {
-  outline: 3px solid #002d56;
+  outline: 2px solid var(--fg);
   outline-offset: 3px;
 }
 
@@ -114,8 +155,8 @@
   width: 0;
   height: 0;
   border-style: solid;
-  border-width: 6px 0 6px 9px;
-  border-color: transparent transparent transparent #002d56;
+  border-width: 5px 0 5px 7px;
+  border-color: transparent transparent transparent currentColor;
 }
 
 @media (max-width: 640px) {
@@ -125,6 +166,79 @@
   }
 
   .hero-card h1 {
+    font-size: clamp(32px, 11vw, 48px);
+  }
+}
+
+html[data-theme='orange'] .hero-brand-mark {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+html[data-theme='orange'] .hero-brand-sub {
+  font-weight: 700;
+}
+
+html[data-theme='orange'] .hero-card {
+  color: #002d56;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(16, 24, 32, 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+html[data-theme='orange'] .hero-card h1 {
+  font-size: clamp(38px, 6.8vw, 68px);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #002d56;
+}
+
+html[data-theme='orange'] .tagline {
+  max-width: 34ch;
+  font-family: var(--sans);
+  font-size: clamp(15px, 2vw, 21px);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #002d56;
+}
+
+html[data-theme='orange'] .cta {
+  padding: 13px 28px 13px 30px;
+  border: 0;
+  border-radius: 10px;
+  font-family: var(--sans);
+  font-size: clamp(15px, 1.9vw, 19px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #002d56;
+  background: linear-gradient(180deg, #ffb347 0%, #f58220 62%, #e07012 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 7px 16px rgba(176, 88, 16, 0.4);
+}
+
+html[data-theme='orange'] .cta:hover {
+  opacity: 1;
+  filter: brightness(1.05);
+}
+
+html[data-theme='orange'] .cta:focus-visible {
+  outline: 3px solid #002d56;
+}
+
+html[data-theme='orange'] .cta-arrow {
+  border-width: 6px 0 6px 9px;
+  border-color: transparent transparent transparent #002d56;
+}
+
+@media (max-width: 640px) {
+  html[data-theme='orange'] .hero-card h1 {
     font-size: clamp(30px, 10vw, 42px);
   }
 }

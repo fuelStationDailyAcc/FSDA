@@ -5,13 +5,11 @@ function HeroCard() {
   return (
     <section className="hero-card">
       <h1>
-        FUELSNC
+        FuelSNC
         <br />
-        DAILY ACCOUNTS
+        Daily Accounts
       </h1>
-      <p className="tagline">
-        Streamlined Digital Ledger for Fuel Station Operations.
-      </p>
+      <p className="tagline">Ledger • Meters • Station Operations</p>
       <div className="pumps" aria-hidden="true">
         <FuelPump fill="#3f8f3a" />
         <FuelPump fill="#e6c12b" />

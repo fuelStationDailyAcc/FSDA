@@ -1,28 +1,28 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  createExpenseCategory,
   createPaymentMethod,
   createProduct,
-  fetchExpenseCategories,
+  deletePaymentMethod,
+  deleteProduct,
   fetchPaymentMethods,
   fetchProducts,
-  updatePaymentMethod,
   updateProduct,
   type FuelProduct,
-  type NamedItem,
   type PaymentMethod,
 } from '../api/accounts'
 import { formatRate, paiseToInput } from '../lib/money'
 import Loader from '../components/Loader'
 import { useAuth } from '../context/AuthContext'
+import { hasPermission, isOwner } from '../lib/permissions'
 
 function SettingsPage() {
-  const { deleteAccount } = useAuth()
+  const { deleteAccount, user } = useAuth()
   const navigate = useNavigate()
+  const canWrite = hasPermission(user, 'settings.write')
+  const owner = isOwner(user)
   const [products, setProducts] = useState<FuelProduct[]>([])
   const [methods, setMethods] = useState<PaymentMethod[]>([])
-  const [categories, setCategories] = useState<NamedItem[]>([])
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
@@ -33,20 +33,11 @@ function SettingsPage() {
   const [productRate, setProductRate] = useState('')
 
   const [methodName, setMethodName] = useState('')
-  const [methodCode, setMethodCode] = useState('')
-  const [methodType, setMethodType] = useState('online')
-
-  const [categoryName, setCategoryName] = useState('')
 
   async function reload() {
-    const [p, m, c] = await Promise.all([
-      fetchProducts(),
-      fetchPaymentMethods(),
-      fetchExpenseCategories(),
-    ])
+    const [p, m] = await Promise.all([fetchProducts(), fetchPaymentMethods()])
     setProducts(p.data)
     setMethods(m.data)
-    setCategories(c.data)
   }
 
   useEffect(() => {
@@ -80,13 +71,12 @@ function SettingsPage() {
     try {
       await createPaymentMethod({
         name: methodName,
-        code: methodCode || methodName,
-        methodType,
-        reducesCash: methodType !== 'cash',
+        code: methodName,
+        methodType: 'other',
+        reducesCash: true,
         isCashTaken: false,
       })
       setMethodName('')
-      setMethodCode('')
       setMessage('Payment method added')
       await reload()
     } catch (err) {
@@ -94,16 +84,32 @@ function SettingsPage() {
     }
   }
 
-  async function handleCategory(e: FormEvent) {
-    e.preventDefault()
+  async function handleRemove(
+    label: string,
+    name: string,
+    remove: () => Promise<{ message?: string }>
+  ) {
+    if (!window.confirm(`Remove ${label} “${name}”?`)) return
     setError('')
+    setMessage('')
     try {
-      await createExpenseCategory(categoryName)
-      setCategoryName('')
-      setMessage('Expense category added')
+      const res = await remove()
+      setMessage(res.message || `${label} removed`)
       await reload()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed')
+      setError(err instanceof Error ? err.message : 'Failed to remove')
+    }
+  }
+
+  async function handleRestoreProduct(product: FuelProduct) {
+    setError('')
+    setMessage('')
+    try {
+      await updateProduct(product.id, { isActive: true })
+      setMessage(`${product.name} restored`)
+      await reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to restore product')
     }
   }
 
@@ -129,7 +135,9 @@ function SettingsPage() {
       <section className="panel">
         <h1 className="page-title">Settings</h1>
         <p className="muted">
-          Configure products, payment methods, and expense categories for this station.
+          Configure products and payment methods for this station.
+          Products already used in daily accounts are hidden from new days instead of deleted.
+          {!canWrite ? ' You have view-only access.' : ''}
         </p>
         {error ? <p className="error-text">{error}</p> : null}
         {message ? <p className="diff-pos">{message}</p> : null}
@@ -141,6 +149,7 @@ function SettingsPage() {
       <>
       <section className="panel">
         <h2 className="panel-title">Fuel Products</h2>
+        {canWrite ? (
         <form className="filters" onSubmit={handleProduct}>
           <label className="field">
             Name
@@ -171,6 +180,7 @@ function SettingsPage() {
             </button>
           </div>
         </form>
+        ) : null}
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -179,7 +189,7 @@ function SettingsPage() {
                 <th>Type</th>
                 <th className="num">Rate</th>
                 <th>Status</th>
-                <th>Action</th>
+                {canWrite ? <th>Action</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -188,7 +198,10 @@ function SettingsPage() {
                   <td>{p.name}</td>
                   <td>{p.productType}</td>
                   <td className="num">{formatRate(p.currentRatePaise)}</td>
-                  <td>{p.isActive ? 'Active' : 'Inactive'}</td>
+                  <td className={p.isActive ? undefined : 'muted'}>
+                    {p.isActive ? 'Active' : 'Hidden'}
+                  </td>
+                  {canWrite ? (
                   <td>
                     <button
                       type="button"
@@ -199,23 +212,39 @@ function SettingsPage() {
                           paiseToInput(p.currentRatePaise)
                         )
                         if (rate === null) return
-                        await updateProduct(p.id, { currentRateRupees: rate })
-                        await reload()
+                        setError('')
+                        try {
+                          await updateProduct(p.id, { currentRateRupees: rate })
+                          setMessage('Product rate updated')
+                          await reload()
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Failed to update rate')
+                        }
                       }}
                     >
                       Edit Rate
                     </button>{' '}
+                    {p.isActive ? (
                     <button
                       type="button"
                       className="btn-ghost btn-sm"
-                      onClick={async () => {
-                        await updateProduct(p.id, { isActive: !p.isActive })
-                        await reload()
-                      }}
+                      onClick={() =>
+                        void handleRemove('product', p.name, () => deleteProduct(p.id))
+                      }
                     >
-                      {p.isActive ? 'Deactivate' : 'Activate'}
+                      Remove
                     </button>
+                    ) : (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={() => void handleRestoreProduct(p)}
+                    >
+                      Restore
+                    </button>
+                    )}
                   </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -225,24 +254,11 @@ function SettingsPage() {
 
       <section className="panel">
         <h2 className="panel-title">Payment Methods</h2>
+        {canWrite ? (
         <form className="filters" onSubmit={handleMethod}>
           <label className="field">
             Name
             <input value={methodName} onChange={(e) => setMethodName(e.target.value)} required />
-          </label>
-          <label className="field">
-            Code
-            <input value={methodCode} onChange={(e) => setMethodCode(e.target.value)} />
-          </label>
-          <label className="field">
-            Type
-            <select value={methodType} onChange={(e) => setMethodType(e.target.value)}>
-              <option value="cash">Cash</option>
-              <option value="credit">Credit</option>
-              <option value="online">Online</option>
-              <option value="card">Card</option>
-              <option value="other">Other</option>
-            </select>
           </label>
           <div style={{ display: 'flex', alignItems: 'end' }}>
             <button type="submit" className="btn btn-sm">
@@ -250,38 +266,32 @@ function SettingsPage() {
             </button>
           </div>
         </form>
+        ) : null}
         <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Code</th>
-                <th>Type</th>
-                <th>Reduces Cash</th>
-                <th>Status</th>
-                <th>Action</th>
+                {canWrite ? <th>Action</th> : null}
               </tr>
             </thead>
             <tbody>
               {methods.map((m) => (
                 <tr key={m.id}>
                   <td>{m.name}</td>
-                  <td>{m.code}</td>
-                  <td>{m.methodType}</td>
-                  <td>{m.reducesCash ? 'Yes' : 'No'}</td>
-                  <td>{m.isActive ? 'Active' : 'Inactive'}</td>
+                  {canWrite ? (
                   <td>
                     <button
                       type="button"
                       className="btn-ghost btn-sm"
-                      onClick={async () => {
-                        await updatePaymentMethod(m.id, { isActive: !m.isActive })
-                        await reload()
-                      }}
+                      onClick={() =>
+                        void handleRemove('payment method', m.name, () => deletePaymentMethod(m.id))
+                      }
                     >
-                      {m.isActive ? 'Deactivate' : 'Activate'}
+                      Remove
                     </button>
                   </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -289,47 +299,12 @@ function SettingsPage() {
         </div>
       </section>
 
-      <section className="panel">
-        <h2 className="panel-title">Expense Categories</h2>
-        <form className="filters" onSubmit={handleCategory}>
-          <label className="field">
-            Name
-            <input
-              value={categoryName}
-              onChange={(e) => setCategoryName(e.target.value)}
-              required
-            />
-          </label>
-          <div style={{ display: 'flex', alignItems: 'end' }}>
-            <button type="submit" className="btn btn-sm">
-              Add Category
-            </button>
-          </div>
-        </form>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td>{c.isActive === false ? 'Inactive' : 'Active'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
+      {owner ? (
       <section className="panel">
         <h2 className="panel-title">Account</h2>
         <p className="muted" style={{ marginBottom: 14 }}>
           Permanently delete your login. Station records already entered stay in the system.
+          Staff logins you created will also be removed.
         </p>
         <button
           type="button"
@@ -340,6 +315,7 @@ function SettingsPage() {
           {deleting ? 'Deleting…' : 'Delete account'}
         </button>
       </section>
+      ) : null}
       </>
       ) : null}
     </div>

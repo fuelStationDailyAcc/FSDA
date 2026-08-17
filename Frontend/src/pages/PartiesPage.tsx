@@ -9,8 +9,12 @@ import {
 } from '../api/accounts'
 import Loader from '../components/Loader'
 import { formatINR, todayISO } from '../lib/money'
+import { useAuth } from '../context/AuthContext'
+import { hasPermission } from '../lib/permissions'
 
 function PartiesPage() {
+  const { user } = useAuth()
+  const canWrite = hasPermission(user, 'ledger.write')
   const [customers, setCustomers] = useState<Party[]>([])
   const [totalUdhaarPaise, setTotalUdhaarPaise] = useState(0)
   const [error, setError] = useState('')
@@ -89,7 +93,10 @@ function PartiesPage() {
             <span className="total-udhaar-value">{formatINR(totalUdhaarPaise)}</span>
           </div>
         </div>
-        <p className="muted">Track credit parties and outstanding balances from the ledger.</p>
+        <p className="muted">
+          Track credit parties and outstanding balances from the ledger.
+          {!canWrite ? ' You have view-only access.' : ''}
+        </p>
         {error ? <p className="error-text">{error}</p> : null}
       </section>
 
@@ -98,6 +105,7 @@ function PartiesPage() {
       ) : (
       <section className="panel">
         <h2 className="panel-title">Customers</h2>
+        {canWrite ? (
         <form className="filters" onSubmit={(e) => void addCustomer(e)}>
           <label className="field">
             Name
@@ -125,6 +133,7 @@ function PartiesPage() {
             </button>
           </div>
         </form>
+        ) : null}
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -133,13 +142,13 @@ function PartiesPage() {
                 <th className="num">Total Credit</th>
                 <th className="num">Total Paid</th>
                 <th className="num">Outstanding</th>
-                <th>Actions</th>
+                {canWrite ? <th>Actions</th> : null}
               </tr>
             </thead>
             <tbody>
               {customers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="empty-state">
+                  <td colSpan={canWrite ? 5 : 4} className="empty-state">
                     No customers yet.
                   </td>
                 </tr>
@@ -150,6 +159,7 @@ function PartiesPage() {
                     <td className="num">{formatINR(c.totalCreditPaise || 0)}</td>
                     <td className="num">{formatINR(c.totalPaidPaise || 0)}</td>
                     <td className="num">{formatINR(c.outstandingPaise || 0)}</td>
+                    {canWrite ? (
                     <td>
                       <button
                         type="button"
@@ -160,6 +170,7 @@ function PartiesPage() {
                         {deletingId === c.id ? 'Deleting…' : 'Delete'}
                       </button>
                     </td>
+                    ) : null}
                   </tr>
                 ))
               )}

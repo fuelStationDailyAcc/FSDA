@@ -71,4 +71,22 @@ export const PaymentMethod = {
         const doc = await PaymentMethodModel.findByIdAndUpdate(id, { $set }, { new: true });
         return mapMethod(doc);
     },
+
+    async delete(id) {
+        if (!isValidObjectId(id)) return null;
+        const { DailyPaymentCollection, Expense, LedgerTransaction } = await import(
+            "./accounts.model.js"
+        );
+        const [inCollections, inExpenses, inLedger] = await Promise.all([
+            DailyPaymentCollection.exists({ paymentMethodId: id }),
+            Expense.exists({ paymentMethodId: id }),
+            LedgerTransaction.exists({ paymentMethodId: id }),
+        ]);
+        if (inCollections || inExpenses || inLedger) {
+            const { ApiError } = await import("../utils/apiError.js");
+            throw new ApiError(409, "Cannot remove payment method that is used in daily accounts");
+        }
+        const doc = await PaymentMethodModel.findByIdAndDelete(id);
+        return mapMethod(doc);
+    },
 };

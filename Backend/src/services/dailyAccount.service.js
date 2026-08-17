@@ -221,7 +221,6 @@ async function loadReadings(dailyAccountId) {
     const productIds = [...new Set(readings.map((row) => row.productId).filter(Boolean))];
     const products = await FuelProductModel.find({
         _id: { $in: productIds },
-        isActive: true,
     }).lean();
     const productsById = byIdMap(products);
 
@@ -281,6 +280,65 @@ async function syncActivePaymentCollections(dailyAccountId) {
         await DailyPaymentCollection.deleteMany({
             dailyAccountId,
             paymentMethodId: { $in: inactive.map((method) => method._id) },
+        });
+    }
+}
+
+async function syncActiveProductReadings(dailyAccountId, accountDate) {
+    const products = await FuelProductModel.find({ isActive: true }).sort({ sortOrder: 1, name: 1 });
+    const existing = await FuelMeterReading.find({ dailyAccountId }).lean();
+    const existingProductIds = new Set(existing.map((row) => toId(row.productId)));
+    let sort = existing.reduce((max, row) => Math.max(max, Number(row.sortOrder) || 0), -1);
+    const productsById = byIdMap(products);
+
+    for (const product of products) {
+        if (existingProductIds.has(toId(product._id))) continue;
+
+        const oldReading = await getPreviousProductReading(product._id, accountDate);
+        sort += 1;
+        await FuelMeterReading.updateOne(
+            { dailyAccountId, productId: product._id, meterLabel: product.name },
+            {
+                $setOnInsert: {
+                    newReading: oldReading,
+                    oldReading,
+                    litres: 0,
+                    testingLitres: 0,
+                    netLitres: 0,
+                    ratePaise: Number(product.currentRatePaise),
+                    totalSalePaise: 0,
+                    sortOrder: Number(product.sortOrder) || sort,
+                },
+            },
+            { upsert: true }
+        );
+    }
+
+    for (const row of existing) {
+        const product = productsById.get(toId(row.productId));
+        if (!product) continue;
+        const unused =
+            Number(row.litres || 0) === 0 &&
+            Number(row.testingLitres || 0) === 0 &&
+            Number(row.totalSalePaise || 0) === 0;
+        if (!unused) continue;
+        const ratePaise = Number(product.currentRatePaise);
+        if (Number(row.ratePaise) === ratePaise && row.meterLabel === product.name) continue;
+        await FuelMeterReading.updateOne(
+            { _id: row._id },
+            { $set: { ratePaise, meterLabel: product.name } }
+        );
+    }
+
+    const inactive = await FuelProductModel.find({ isActive: false }).select("_id");
+    if (inactive.length) {
+        await FuelMeterReading.deleteMany({
+            dailyAccountId,
+            productId: { $in: inactive.map((product) => product._id) },
+            litres: 0,
+            testingLitres: 0,
+            netLitres: 0,
+            totalSalePaise: 0,
         });
     }
 }
@@ -392,6 +450,9 @@ async function loadTransactions(dailyAccountId, filters = {}) {
 
 async function buildDayPayload(account, filters = {}) {
     await syncActivePaymentCollections(account.id);
+    if (account.status !== "closed") {
+        await syncActiveProductReadings(account.id, account.accountDate);
+    }
     const readings = await loadReadings(account.id);
     const collections = await loadCollections(account.id);
     const expenses = await loadExpenses(account.id);
@@ -464,6 +525,131 @@ export const DailyAccountService = {
         return buildDayPayload(account, filters);
     },
 
+    async listHistory({ from, to, status } = {}) {
+        const match = {};
+        if (from || to) {
+            match.accountDate = {};
+            if (from) match.accountDate.$gte = normalizeDate(from);
+            if (to) match.accountDate.$lte = normalizeDate(to);
+        }
+        if (status === "open" || status === "closed") match.status = status;
+
+        const accounts = await DailyAccount.find(match).sort({ accountDate: -1 }).lean();
+        if (!accounts.length) return [];
+
+        const ids = accounts.map((row) => row._id);
+
+        const [saleRows, expenseRows, ledgerRows, collectionRows] = await Promise.all([
+            FuelMeterReading.aggregate([
+                { $match: { dailyAccountId: { $in: ids } } },
+                {
+                    $group: {
+                        _id: "$dailyAccountId",
+                        totalFuelSalesPaise: { $sum: "$totalSalePaise" },
+                    },
+                },
+            ]),
+            Expense.aggregate([
+                { $match: { dailyAccountId: { $in: ids } } },
+                {
+                    $group: {
+                        _id: "$dailyAccountId",
+                        totalExpensesPaise: { $sum: "$amountPaise" },
+                    },
+                },
+            ]),
+            LedgerTransaction.aggregate([
+                { $match: { dailyAccountId: { $in: ids } } },
+                {
+                    $group: {
+                        _id: { dailyAccountId: "$dailyAccountId", type: "$type" },
+                        totalPaise: { $sum: "$amountPaise" },
+                    },
+                },
+            ]),
+            DailyPaymentCollection.aggregate([
+                { $match: { dailyAccountId: { $in: ids } } },
+                {
+                    $lookup: {
+                        from: "payment_methods",
+                        localField: "paymentMethodId",
+                        foreignField: "_id",
+                        as: "method",
+                    },
+                },
+                { $unwind: { path: "$method", preserveNullAndEmptyArrays: true } },
+            ]),
+        ]);
+
+        const salesById = new Map(
+            saleRows.map((row) => [toId(row._id), Number(row.totalFuelSalesPaise || 0)])
+        );
+        const expensesById = new Map(
+            expenseRows.map((row) => [toId(row._id), Number(row.totalExpensesPaise || 0)])
+        );
+        const creditById = new Map();
+        const debitById = new Map();
+        for (const row of ledgerRows) {
+            const id = toId(row._id.dailyAccountId);
+            if (row._id.type === "CREDIT") creditById.set(id, Number(row.totalPaise || 0));
+            else debitById.set(id, Number(row.totalPaise || 0));
+        }
+
+        const collectionsById = new Map();
+        for (const row of collectionRows) {
+            const id = toId(row.dailyAccountId);
+            if (!collectionsById.has(id)) collectionsById.set(id, []);
+            collectionsById.get(id).push({
+                paymentMethodId: toId(row.paymentMethodId),
+                name: row.method?.name,
+                methodType: row.method?.methodType,
+                code: row.method?.code,
+                reducesCash: row.method?.reducesCash,
+                isCashTaken: row.method?.isCashTaken,
+                amountPaise: Number(row.amountPaise || 0),
+            });
+        }
+
+        return accounts.map((doc) => {
+            const account = mapDaily(doc);
+            const id = account.id;
+            const totalFuelSalePaise = salesById.get(id) || 0;
+            const totalExpensePaise = expensesById.get(id) || 0;
+            const totalCreditPaise = creditById.get(id) || 0;
+            const totalDebitPaise = debitById.get(id) || 0;
+            const collections = (collectionsById.get(id) || []).map((row) => {
+                const isCredit =
+                    String(row.methodType || "").toLowerCase() === "credit" ||
+                    String(row.code || "").toLowerCase() === "credit";
+                return isCredit ? { ...row, amountPaise: totalCreditPaise } : row;
+            });
+            const cashSummary = calculateCashSummary({
+                totalFuelSalePaise,
+                collections,
+                totalExpensePaise,
+                cashTakenPaise: account.cashTakenPaise,
+                actualClosingCashPaise: account.actualClosingCashPaise,
+            });
+
+            return {
+                id,
+                accountDate: account.accountDate,
+                status: account.status,
+                closedAt: account.closedAt,
+                createdAt: account.createdAt,
+                updatedAt: account.updatedAt,
+                totalFuelSalesPaise: totalFuelSalePaise,
+                totalCreditPaise: cashSummary.creditPaise,
+                totalDebitPaise,
+                totalExpensesPaise: totalExpensePaise,
+                onlineCollectionsPaise: cashSummary.onlinePaise + cashSummary.otherNonCashPaise,
+                closingCashPaise: cashSummary.expectedClosingCashPaise,
+                actualClosingCashPaise: cashSummary.actualClosingCashPaise,
+                differencePaise: cashSummary.differencePaise,
+            };
+        });
+    },
+
     async updateCashTaken(accountDate, userId, cashTakenRupees) {
         const account = await ensureDailyAccount(accountDate, userId);
         assertOpen(account);
@@ -531,10 +717,7 @@ export const DailyAccountService = {
             payload.testingLitres !== undefined
                 ? parseLitres(payload.testingLitres)
                 : Number(existing.testingLitres);
-        const ratePaise =
-            payload.rateRupees !== undefined
-                ? toPaise(payload.rateRupees)
-                : Number(existing.ratePaise);
+        const ratePaise = Number(existing.ratePaise);
 
         if (newReading < oldReading) {
             throw new ApiError(400, "New reading cannot be less than old reading");

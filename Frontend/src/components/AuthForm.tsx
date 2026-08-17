@@ -22,7 +22,7 @@ function AuthForm() {
       if (mode === 'register') {
         await register(username, email, password, stationName)
       } else {
-        await login(email, password)
+        await login(username || email, password)
       }
       navigate('/dashboard', { replace: true })
     } catch (err) {
@@ -62,17 +62,31 @@ function AuthForm() {
           </label>
         </>
       )}
-      <label className="auth-field">
-        Email
-        <input
-          type="email"
-          name="email"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </label>
+      {mode === 'login' ? (
+        <label className="auth-field">
+          Username or email
+          <input
+            type="text"
+            name="username"
+            autoComplete="username"
+            required
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+          />
+        </label>
+      ) : (
+        <label className="auth-field">
+          Email
+          <input
+            type="email"
+            name="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+      )}
       <label className="auth-field">
         Password
         <input

@@ -17,7 +17,7 @@ function AuthPage() {
         <Link to="/" className="auth-back">
           FuelSNC Daily Accounts
         </Link>
-        <h1>GET STARTED</h1>
+        <h1>Get started</h1>
         <p className="tagline">Sign in or create your station ledger account.</p>
         <AuthForm />
       </section>

@@ -76,6 +76,18 @@ export const ExpenseCategory = {
         const doc = await ExpenseCategoryModel.findByIdAndUpdate(id, { $set }, { new: true });
         return mapCat(doc);
     },
+
+    async delete(id) {
+        if (!isValidObjectId(id)) return null;
+        const { Expense } = await import("./accounts.model.js");
+        const inUse = await Expense.exists({ categoryId: id });
+        if (inUse) {
+            const { ApiError } = await import("../utils/apiError.js");
+            throw new ApiError(409, "Cannot remove category that is used in expenses");
+        }
+        const doc = await ExpenseCategoryModel.findByIdAndDelete(id);
+        return mapCat(doc);
+    },
 };
 
 export const TransactionCategory = {

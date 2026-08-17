@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { assignIfPresent, isValidObjectId, leanDoc, toId } from "../db/helpers.js";
+import { assignIfPresent, asObjectId, isValidObjectId, leanDoc, toId } from "../db/helpers.js";
 
 const fuelProductSchema = new mongoose.Schema(
     {
@@ -62,6 +62,38 @@ export const FuelProduct = {
         assignIfPresent($set, "isActive", isActive);
         assignIfPresent($set, "sortOrder", sortOrder);
         const doc = await FuelProductModel.findByIdAndUpdate(id, { $set }, { new: true });
+        return mapProduct(doc);
+    },
+
+    async delete(id) {
+        if (!isValidObjectId(id)) return null;
+        const productId = asObjectId(id);
+        const { DailyAccount, FuelMeterReading } = await import("./accounts.model.js");
+
+        const openDays = await DailyAccount.find({ status: "open" }).select("_id");
+        if (openDays.length) {
+            await FuelMeterReading.deleteMany({
+                productId,
+                dailyAccountId: { $in: openDays.map((day) => day._id) },
+                litres: 0,
+                testingLitres: 0,
+                netLitres: 0,
+                totalSalePaise: 0,
+            });
+        }
+
+        const inUse = await FuelMeterReading.exists({ productId });
+        if (inUse) {
+            const doc = await FuelProductModel.findByIdAndUpdate(
+                id,
+                { $set: { isActive: false } },
+                { new: true }
+            );
+            const mapped = mapProduct(doc);
+            return mapped ? { ...mapped, deactivated: true } : null;
+        }
+
+        const doc = await FuelProductModel.findByIdAndDelete(id);
         return mapProduct(doc);
     },
 };

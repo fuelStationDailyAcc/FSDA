@@ -151,11 +151,42 @@ function qs(params: Record<string, string | number | undefined>) {
   return s ? `?${s}` : ""
 }
 
+export type DailyAccountSummary = {
+  id: string
+  accountDate: string
+  status: "open" | "closed"
+  closedAt?: string | null
+  createdAt?: string
+  updatedAt?: string
+  totalFuelSalesPaise: number
+  totalCreditPaise: number
+  totalDebitPaise: number
+  totalExpensesPaise: number
+  onlineCollectionsPaise: number
+  closingCashPaise: number
+  actualClosingCashPaise: number | null
+  differencePaise: number | null
+}
+
 export async function fetchDailyAccount(
   date: string,
   filters: Record<string, string | number | undefined> = {}
 ) {
   return apiRequest<DailyAccountPayload>(`/accounts/daily${qs({ date, ...filters })}`)
+}
+
+export async function fetchAccountHistory(filters: {
+  from?: string
+  to?: string
+  status?: "open" | "closed" | ""
+} = {}) {
+  return apiRequest<DailyAccountSummary[]>(
+    `/accounts/history${qs({
+      from: filters.from,
+      to: filters.to,
+      status: filters.status || undefined,
+    })}`
+  )
 }
 
 export async function updateReading(
@@ -260,6 +291,12 @@ export async function updateProduct(id: string, body: Record<string, unknown>) {
   })
 }
 
+export async function deleteProduct(id: string) {
+  return apiRequest<FuelProduct>(`/accounts/products/${id}`, {
+    method: "DELETE",
+  })
+}
+
 export async function fetchPaymentMethods(activeOnly = false) {
   return apiRequest<PaymentMethod[]>(
     `/accounts/payment-methods${qs({ activeOnly: activeOnly ? "true" : undefined })}`
@@ -280,6 +317,12 @@ export async function updatePaymentMethod(id: string, body: Record<string, unkno
   })
 }
 
+export async function deletePaymentMethod(id: string) {
+  return apiRequest<PaymentMethod>(`/accounts/payment-methods/${id}`, {
+    method: "DELETE",
+  })
+}
+
 export async function fetchExpenseCategories() {
   return apiRequest<NamedItem[]>(`/accounts/expense-categories`)
 }
@@ -288,6 +331,12 @@ export async function createExpenseCategory(name: string) {
   return apiRequest<NamedItem>(`/accounts/expense-categories`, {
     method: "POST",
     body: JSON.stringify({ name }),
+  })
+}
+
+export async function deleteExpenseCategory(id: string) {
+  return apiRequest<NamedItem>(`/accounts/expense-categories/${id}`, {
+    method: "DELETE",
   })
 }
 

@@ -14,6 +14,17 @@ export function formatINR(paise: number | null | undefined, showPaise = false): 
   return `${sign}₹${formatted}`
 }
 
+/** Drop paise: ₹1.70 becomes ₹1. */
+export function formatINRFloor(paise: number | null | undefined): string {
+  if (paise === null || paise === undefined || Number.isNaN(Number(paise))) {
+    return "—"
+  }
+  const n = Number(paise)
+  const sign = n < 0 ? "-" : ""
+  const rupees = Math.floor(Math.abs(n) / 100)
+  return `${sign}₹${formatIndianNumber(rupees)}`
+}
+
 export function formatIndianNumber(n: number): string {
   const s = Math.floor(Math.abs(n)).toString()
   if (s.length <= 3) return s
@@ -30,6 +41,35 @@ export function paiseToInput(paise: number | null | undefined): string {
 export function formatRate(paise: number): string {
   if (!paise) return "—"
   return `₹${(paise / 100).toFixed(2)}`
+}
+
+export function parseLitres(value: string | number | null | undefined): number {
+  if (value === null || value === undefined || value === "") return 0
+  const n = typeof value === "number" ? value : Number(String(value).replace(/,/g, ""))
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n * 1000) / 1000
+}
+
+export function calcLitres(newReading: string | number, oldReading: string | number): number {
+  return Math.round((parseLitres(newReading) - parseLitres(oldReading)) * 1000) / 1000
+}
+
+export function calcNetLitres(litres: string | number, testingLitres: string | number): number {
+  return Math.round((parseLitres(litres) - parseLitres(testingLitres)) * 1000) / 1000
+}
+
+export function calcFuelSalePaise(netLitres: number, ratePaise: number): number {
+  const ml = Math.round(Number(netLitres) * 1000)
+  const rate = BigInt(Math.round(Number(ratePaise) || 0))
+  const product = BigInt(ml) * rate
+  const q = product / 1000n
+  const r = product % 1000n
+  return Number(r >= 500n ? q + 1n : q)
+}
+
+export function formatLitres(n: number): string {
+  if (!Number.isFinite(n)) return "—"
+  return String(Math.round(n * 1000) / 1000)
 }
 
 export function todayISO(): string {

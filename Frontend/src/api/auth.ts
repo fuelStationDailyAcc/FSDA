@@ -1,11 +1,16 @@
 import { USERS_API } from "./proxy"
 
+import type { StaffPermissions } from '../lib/permissions'
+
 export type AuthUser = {
   _id: string
   username: string
-  email: string
+  email?: string | null
   role?: string
   stationName?: string | null
+  ownerId?: string | null
+  isOwner?: boolean
+  permissions?: StaffPermissions
 }
 
 type ApiSuccess<T> = {
@@ -48,12 +53,17 @@ export async function registerRequest(input: {
 }
 
 export async function loginRequest(input: {
-  email: string
+  identifier: string
   password: string
 }) {
+  const identifier = input.identifier.trim()
   return request<{ user: AuthUser; accessToken: string }>("/login", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      username: identifier,
+      email: identifier,
+      password: input.password,
+    }),
   })
 }
 
