@@ -65,6 +65,8 @@ export type MeterReading = {
   meterLabel: string | null
   newReading: number
   oldReading: number
+  previousNewReading: number | null
+  oldReadingManual: boolean
   litres: number
   testingLitres: number
   netLitres: number

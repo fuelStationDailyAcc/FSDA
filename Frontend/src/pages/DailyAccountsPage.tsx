@@ -62,10 +62,13 @@ type FuelSaveHandle = {
 
 function isReadingDirty(reading: MeterReading, draft?: ReadingDraft) {
   if (!draft) return false
+  const openingChanged =
+    reading.previousNewReading === null &&
+    Number(draft.oldReading) !== Number(reading.oldReading)
   return (
     Number(draft.newReading) !== Number(reading.newReading) ||
-    Number(draft.oldReading) !== Number(reading.oldReading) ||
-    Number(draft.testingLitres) !== Number(reading.testingLitres)
+    Number(draft.testingLitres) !== Number(reading.testingLitres) ||
+    openingChanged
   )
 }
 
@@ -149,7 +152,6 @@ function DailyAccountsPage() {
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [closeOpen, setCloseOpen] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
-  const [actualCash, setActualCash] = useState('')
   const [cashTakenDraft, setCashTakenDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [readingsDirty, setReadingsDirty] = useState(false)
@@ -379,7 +381,7 @@ function DailyAccountsPage() {
           ) : !closed ? (
             <span className="no-print">
               {' '}
-              · Edits stay local until you click Save. Reload discards unsaved changes.
+              
             </span>
           ) : null}
         </p>
@@ -553,30 +555,6 @@ function DailyAccountsPage() {
                 <span>{formatINRFloor(closingCashPaise)}</span>
               </div>
             </div>
-            <label className="field" style={{ marginTop: 12 }}>
-              Actual Cash in Hand
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={actualCash}
-                onChange={(e) => setActualCash(e.target.value)}
-                required
-              />
-            </label>
-            {actualCash !== '' ? (
-              <p
-                className={
-                  Math.round(Number(actualCash) * 100) - closingCashPaise === 0
-                    ? 'diff-pos'
-                    : 'diff-neg'
-                }
-                style={{ fontWeight: 800 }}
-              >
-                Difference:{' '}
-                {formatINR(Math.round(Number(actualCash) * 100) - closingCashPaise)}
-              </p>
-            ) : null}
             {!confirmClose ? (
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setCloseOpen(false)}>
@@ -585,7 +563,6 @@ function DailyAccountsPage() {
                 <button
                   type="button"
                   className="btn"
-                  disabled={actualCash === ''}
                   onClick={() => setConfirmClose(true)}
                 >
                   Review & Close
@@ -604,11 +581,10 @@ function DailyAccountsPage() {
                     setBusy(true)
                     try {
                       await persistCashTaken()
-                      const res = await closeDay(date, actualCash)
+                      const res = await closeDay(date, closingCashPaise / 100)
                       applyDay(res.data)
                       setCloseOpen(false)
                       setConfirmClose(false)
-                      setActualCash('')
                     } catch (err) {
                       setError(err instanceof Error ? err.message : 'Close failed')
                     } finally {
@@ -714,16 +690,14 @@ const FuelReadingsSection = forwardRef<
         return readings.flatMap((r) => {
           const d = drafts[r.id]
           if (!d || !isReadingDirty(r, d)) return []
-          return [
-            {
-              id: r.id,
-              patch: {
-                newReading: Number(d.newReading),
-                oldReading: Number(d.oldReading),
-                testingLitres: Number(d.testingLitres),
-              },
-            },
-          ]
+          const patch: Record<string, string | number> = {
+            newReading: Number(d.newReading),
+            testingLitres: Number(d.testingLitres),
+          }
+          if (r.previousNewReading === null) {
+            patch.oldReading = Number(d.oldReading)
+          }
+          return [{ id: r.id, patch }]
         })
       },
     }),
@@ -776,6 +750,9 @@ const FuelReadingsSection = forwardRef<
           <tbody>
             {liveRows.map((r) => {
               const d = drafts[r.id] || {}
+              const previousClose = r.previousNewReading
+              const oldDiffersFromPrevious =
+                previousClose !== null && Number(d.oldReading ?? r.oldReading) !== previousClose
               return (
                 <tr key={r.id}>
                   <td>{r.meterLabel || r.productName}</td>
@@ -793,17 +770,37 @@ const FuelReadingsSection = forwardRef<
                     />
                   </td>
                   <td className="num">
-                    <input
-                      className="cell-input"
-                      disabled={closed}
-                      value={d.oldReading ?? ''}
-                      onChange={(e) =>
-                        setDrafts((prev) => ({
-                          ...prev,
-                          [r.id]: { ...prev[r.id], oldReading: e.target.value },
-                        }))
-                      }
-                    />
+                    <div className="reading-input">
+                      <input
+                        className="cell-input"
+                        disabled={closed}
+                        title="Filled from the previous day's new reading. You can change it if needed."
+                        value={d.oldReading ?? ''}
+                        onChange={(e) =>
+                          setDrafts((prev) => ({
+                            ...prev,
+                            [r.id]: { ...prev[r.id], oldReading: e.target.value },
+                          }))
+                        }
+                      />
+                      {!closed && previousClose !== null && oldDiffersFromPrevious ? (
+                        <button
+                          type="button"
+                          className="reading-reset"
+                          onClick={() =>
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [r.id]: {
+                                ...prev[r.id],
+                                oldReading: String(previousClose),
+                              },
+                            }))
+                          }
+                        >
+                          Use previous
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="num">{formatLitres(r.litres)}</td>
                   <td className="num">

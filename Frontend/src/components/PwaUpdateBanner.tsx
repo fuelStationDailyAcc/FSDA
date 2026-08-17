@@ -19,7 +19,7 @@ function PwaUpdateBanner() {
 
   return (
     <div className="pwa-banner" role="status">
-      <p>A new version of FuelSNC is ready.</p>
+      <p>A new version of PetroBook is ready.</p>
       <div className="pwa-banner-actions">
         <button type="button" className="btn btn-sm" onClick={() => void updateServiceWorker(true)}>
           Reload

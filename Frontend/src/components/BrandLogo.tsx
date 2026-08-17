@@ -4,12 +4,11 @@ type BrandLogoProps = {
   size?: number
 }
 
-function BrandLogo({ className, alt = 'FuelSNC', size = 192 }: BrandLogoProps) {
-  const src = size >= 256 ? '/pwa-512x512.png' : '/pwa-192x192.png'
+function BrandLogo({ className, alt = 'PetroBook', size = 192 }: BrandLogoProps) {
   return (
     <img
       className={className}
-      src={src}
+      src="/logo-mark.png"
       alt={alt}
       width={size}
       height={size}

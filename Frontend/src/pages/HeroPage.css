@@ -107,6 +107,13 @@ html[data-theme='orange'] .hero-bg {
   color: var(--fg);
 }
 
+.hero-card-logo {
+  width: clamp(72px, 12vw, 112px);
+  height: clamp(72px, 12vw, 112px);
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .tagline {
   margin: 0;
   max-width: 42ch;
@@ -119,11 +126,17 @@ html[data-theme='orange'] .hero-bg {
   color: var(--muted);
 }
 
-.hero-logo {
-  width: min(168px, 38vw);
+.pumps {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(20px, 4.2vw, 42px);
+  color: var(--fg);
+}
+
+.pump {
+  width: clamp(46px, 6.8vw, 64px);
   height: auto;
-  display: block;
-  border-radius: 50%;
 }
 
 .cta {

@@ -15,8 +15,7 @@ function DashboardPage() {
             : `Welcome, ${user?.username}`}
         </h1>
         <p className="muted" style={{ marginTop: 8 }}>
-          FuelSNC Daily Accounts — enter meter readings, expenses, and ledger entries for each
-          accounting day.
+          PetroBook — enter meter readings, expenses, and ledger entries for each accounting day.
         </p>
         <div className="toolbar" style={{ marginTop: 18 }}>
           {hasPermission(user, 'accounts.read') ? (

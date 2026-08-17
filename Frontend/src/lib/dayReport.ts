@@ -24,7 +24,7 @@ export function buildDayReportCsv(
   const lines: string[] = []
   const blank = () => lines.push('')
 
-  lines.push(row('FuelSNC Daily Accounts'))
+  lines.push(row('PetroBook'))
   if (stationName) lines.push(row('Station', stationName))
   lines.push(row('Date', formatDisplayDate(date), date))
   lines.push(row('Status', data.account.status === 'closed' ? 'Closed' : 'Open'))

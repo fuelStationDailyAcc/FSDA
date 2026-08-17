@@ -17,7 +17,7 @@ function AuthPage() {
       <section className="hero-card auth-card">
         <Link to="/" className="auth-back">
           <BrandLogo className="auth-back-logo" alt="" size={40} />
-          FuelSNC Daily Accounts
+          PetroBook
         </Link>
         <h1>Get started</h1>
         <p className="tagline">Sign in or create your station ledger account.</p>

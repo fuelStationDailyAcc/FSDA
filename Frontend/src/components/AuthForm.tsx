@@ -108,7 +108,7 @@ function AuthForm() {
       </button>
 
       <p className="auth-switch">
-        {mode === 'login' ? 'New to FuelSNC?' : 'Already have an account?'}{' '}
+        {mode === 'login' ? 'New to PetroBook?' : 'Already have an account?'}{' '}
         <button
           type="button"
           className="auth-switch-btn"

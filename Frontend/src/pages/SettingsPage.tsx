@@ -157,14 +157,14 @@ function SettingsPage() {
       <section className="panel">
         <h2 className="panel-title">Install app</h2>
         {installed ? (
-          <p className="muted">FuelSNC is installed on this device.</p>
+          <p className="muted">PetroBook is installed on this device.</p>
         ) : canInstall ? (
           <>
             <p className="muted" style={{ marginBottom: 14 }}>
-              Add FuelSNC to your home screen for faster access and a full-screen layout.
+              Add PetroBook to your home screen for faster access and a full-screen layout.
             </p>
             <button type="button" className="btn" onClick={() => void install()}>
-              Install FuelSNC
+              Install PetroBook
             </button>
           </>
         ) : isIos ? (
@@ -173,7 +173,7 @@ function SettingsPage() {
           </p>
         ) : (
           <p className="muted">
-            Use your browser’s install or Add to Home Screen option to open FuelSNC like an app.
+            Use your browser’s install or Add to Home Screen option to open PetroBook like an app.
           </p>
         )}
       </section>

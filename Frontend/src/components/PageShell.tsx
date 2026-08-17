@@ -13,7 +13,7 @@ function PageShell({ children }: { children: ReactNode }) {
         <div className="hero-brand">
           <BrandLogo className="hero-brand-logo" alt="" size={40} />
           <div className="hero-brand-copy">
-            <span className="hero-brand-mark">FuelSNC</span>
+            <span className="hero-brand-mark">PetroBook</span>
             <span className="hero-brand-sub">Daily Accounts</span>
           </div>
         </div>

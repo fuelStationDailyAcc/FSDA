@@ -30,8 +30,8 @@ function PwaInstallButton() {
       <button
         type="button"
         className="pwa-install-btn"
-        aria-label="Install FuelSNC"
-        title="Install FuelSNC"
+        aria-label="Install PetroBook"
+        title="Install PetroBook"
         aria-expanded={open}
         onClick={() => void handleClick()}
       >
@@ -43,11 +43,11 @@ function PwaInstallButton() {
         </svg>
       </button>
       {open ? (
-        <div className="pwa-install-pop" role="dialog" aria-label="Install FuelSNC">
+        <div className="pwa-install-pop" role="dialog" aria-label="Install PetroBook">
           <p>
             {isIos
               ? 'On iPhone or iPad, tap Share in Safari, then Add to Home Screen.'
-              : 'Install FuelSNC to open it like an app. If your browser shows an install icon in the address bar, you can use that too.'}
+              : 'Install PetroBook to open it like an app. If your browser shows an install icon in the address bar, you can use that too.'}
           </p>
           {canInstall ? (
             <button type="button" className="btn btn-sm" onClick={() => void install()}>

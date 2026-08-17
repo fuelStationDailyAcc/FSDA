@@ -10,7 +10,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="app-shell">
-        <Loader fullPage label="Loading FuelSNC…" />
+        <Loader fullPage label="Loading PetroBook…" />
       </div>
     )
   }

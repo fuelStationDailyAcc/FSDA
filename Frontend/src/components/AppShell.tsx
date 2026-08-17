@@ -24,7 +24,7 @@ function AppShell() {
         <div className="app-brand">
           <BrandLogo className="app-brand-logo" alt="" size={40} />
           <div className="app-brand-copy">
-            <span className="app-brand-mark">FuelSNC</span>
+            <span className="app-brand-mark">PetroBook</span>
             <span className="app-brand-sub">Daily Accounts</span>
           </div>
         </div>
