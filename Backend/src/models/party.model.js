@@ -1,40 +1,71 @@
-import { query } from "../db/index.js";
+import mongoose from "mongoose";
+import { assignIfPresent, isValidObjectId, leanDoc, toId } from "../db/helpers.js";
+import { LedgerTransaction } from "./accounts.model.js";
 
-function mapParty(row, type) {
+function createPartySchema(collection) {
+    return new mongoose.Schema(
+        {
+            name: { type: String, required: true, trim: true },
+            phone: { type: String, default: null },
+            notes: { type: String, default: null },
+            isActive: { type: Boolean, default: true },
+        },
+        { timestamps: true, collection }
+    );
+}
+
+export const CustomerModel =
+    mongoose.models.Customer || mongoose.model("Customer", createPartySchema("customers"));
+export const VendorModel =
+    mongoose.models.Vendor || mongoose.model("Vendor", createPartySchema("vendors"));
+
+function mapParty(doc, type) {
+    const row = leanDoc(doc);
     if (!row) return null;
     return {
-        id: row.id,
+        id: toId(row._id),
         type,
         name: row.name,
         phone: row.phone,
         notes: row.notes,
-        isActive: row.is_active,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        isActive: row.isActive,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
     };
 }
 
-async function partyBalances(table, partyType) {
-    const result = await query(
-        `SELECT p.*,
-            COALESCE(SUM(CASE WHEN t.type = 'CREDIT' AND $1 = 'customer' THEN t.amount_paise
-                              WHEN t.type = 'DEBIT' AND $1 = 'vendor' THEN t.amount_paise
-                              ELSE 0 END), 0)::bigint AS total_in_paise,
-            COALESCE(SUM(CASE WHEN t.type = 'DEBIT' AND $1 = 'customer' THEN t.amount_paise
-                              WHEN t.type = 'CREDIT' AND $1 = 'vendor' THEN t.amount_paise
-                              ELSE 0 END), 0)::bigint AS total_out_paise
-         FROM ${table} p
-         LEFT JOIN ledger_transactions t
-           ON t.party_type = $1 AND t.party_id = p.id
-         GROUP BY p.id
-         ORDER BY p.name ASC`,
-        [partyType]
-    );
+async function partyBalances(Model, partyType) {
+    const parties = await Model.find().sort({ name: 1 }).lean();
+    const ids = parties.map((party) => party._id);
+    const totals = ids.length
+        ? await LedgerTransaction.aggregate([
+              { $match: { partyType, partyId: { $in: ids } } },
+              {
+                  $group: {
+                      _id: "$partyId",
+                      creditPaise: {
+                          $sum: { $cond: [{ $eq: ["$type", "CREDIT"] }, "$amountPaise", 0] },
+                      },
+                      debitPaise: {
+                          $sum: { $cond: [{ $eq: ["$type", "DEBIT"] }, "$amountPaise", 0] },
+                      },
+                  },
+              },
+          ])
+        : [];
 
-    return result.rows.map((row) => {
-        const totalIn = Number(row.total_in_paise);
-        const totalOut = Number(row.total_out_paise);
-        const base = mapParty(row, partyType);
+    const totalsByParty = new Map(totals.map((row) => [String(row._id), row]));
+
+    return parties.map((party) => {
+        const totalsRow = totalsByParty.get(String(party._id)) || {
+            creditPaise: 0,
+            debitPaise: 0,
+        };
+        const totalIn =
+            partyType === "customer" ? Number(totalsRow.creditPaise) : Number(totalsRow.debitPaise);
+        const totalOut =
+            partyType === "customer" ? Number(totalsRow.debitPaise) : Number(totalsRow.creditPaise);
+        const base = mapParty(party, partyType);
         if (partyType === "customer") {
             return {
                 ...base,
@@ -54,67 +85,62 @@ async function partyBalances(table, partyType) {
 
 export const Customer = {
     async list() {
-        return partyBalances("customers", "customer");
+        return partyBalances(CustomerModel, "customer");
     },
 
     async create({ name, phone, notes }) {
-        const result = await query(
-            `INSERT INTO customers (name, phone, notes) VALUES ($1, $2, $3) RETURNING *`,
-            [name.trim(), phone || null, notes || null]
-        );
-        return mapParty(result.rows[0], "customer");
+        const doc = await CustomerModel.create({
+            name: name.trim(),
+            phone: phone || null,
+            notes: notes || null,
+        });
+        return mapParty(doc, "customer");
     },
 
     async update(id, { name, phone, notes, isActive }) {
-        const result = await query(
-            `UPDATE customers SET
-                name = COALESCE($2, name),
-                phone = COALESCE($3, phone),
-                notes = COALESCE($4, notes),
-                is_active = COALESCE($5, is_active),
-                updated_at = NOW()
-             WHERE id = $1 RETURNING *`,
-            [id, name?.trim() ?? null, phone ?? null, notes ?? null, isActive ?? null]
-        );
-        return mapParty(result.rows[0], "customer");
+        if (!isValidObjectId(id)) return null;
+        const $set = {};
+        assignIfPresent($set, "name", name, (value) => value.trim());
+        assignIfPresent($set, "phone", phone);
+        assignIfPresent($set, "notes", notes);
+        assignIfPresent($set, "isActive", isActive);
+        const doc = await CustomerModel.findByIdAndUpdate(id, { $set }, { new: true });
+        return mapParty(doc, "customer");
     },
 
     async delete(id) {
-        await query(
-            `UPDATE ledger_transactions
-             SET party_id = NULL, updated_at = NOW()
-             WHERE party_type = 'customer' AND party_id = $1`,
-            [id]
+        if (!isValidObjectId(id)) return null;
+        await LedgerTransaction.updateMany(
+            { partyType: "customer", partyId: id },
+            { $set: { partyId: null } }
         );
-        const result = await query(`DELETE FROM customers WHERE id = $1 RETURNING *`, [id]);
-        return mapParty(result.rows[0], "customer");
+        const doc = await CustomerModel.findByIdAndDelete(id);
+        return mapParty(doc, "customer");
     },
 };
 
 export const Vendor = {
     async list() {
-        return partyBalances("vendors", "vendor");
+        return partyBalances(VendorModel, "vendor");
     },
 
     async create({ name, phone, notes }) {
-        const result = await query(
-            `INSERT INTO vendors (name, phone, notes) VALUES ($1, $2, $3) RETURNING *`,
-            [name.trim(), phone || null, notes || null]
-        );
-        return mapParty(result.rows[0], "vendor");
+        const doc = await VendorModel.create({
+            name: name.trim(),
+            phone: phone || null,
+            notes: notes || null,
+        });
+        return mapParty(doc, "vendor");
     },
 
     async update(id, { name, phone, notes, isActive }) {
-        const result = await query(
-            `UPDATE vendors SET
-                name = COALESCE($2, name),
-                phone = COALESCE($3, phone),
-                notes = COALESCE($4, notes),
-                is_active = COALESCE($5, is_active),
-                updated_at = NOW()
-             WHERE id = $1 RETURNING *`,
-            [id, name?.trim() ?? null, phone ?? null, notes ?? null, isActive ?? null]
-        );
-        return mapParty(result.rows[0], "vendor");
+        if (!isValidObjectId(id)) return null;
+        const $set = {};
+        assignIfPresent($set, "name", name, (value) => value.trim());
+        assignIfPresent($set, "phone", phone);
+        assignIfPresent($set, "notes", notes);
+        assignIfPresent($set, "isActive", isActive);
+        const doc = await VendorModel.findByIdAndUpdate(id, { $set }, { new: true });
+        return mapParty(doc, "vendor");
     },
 };

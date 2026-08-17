@@ -11,6 +11,6 @@ connectDB()
         });
     })
     .catch((error) => {
-        console.error("PostgreSQL connection failed:", error.message);
+        console.error("MongoDB connection failed:", error.message);
         process.exit(1);
     });

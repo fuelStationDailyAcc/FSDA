@@ -1,76 +1,23 @@
-import pg from "pg";
-import { ensureSchema } from "./schema.js";
+import mongoose from "mongoose";
+import { DB_NAME } from "../constants.js";
+import { seedDefaults } from "./seed.js";
 
-const { Pool, types } = pg;
+mongoose.set("strictQuery", true);
 
-// Keep DATE columns as YYYY-MM-DD strings (avoid UTC timezone shifts).
-types.setTypeParser(1082, (value) => value);
-
-function databaseUrl() {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-        throw new Error("DATABASE_URL is required");
+function mongoUri() {
+    const uri = process.env.MONGODB_URI || process.env.MONGODB_URL || process.env.DATABASE_URL;
+    if (!uri) {
+        throw new Error("MONGODB_URI is required");
     }
-
-    const parsed = new URL(url);
-    parsed.searchParams.set("sslmode", "require");
-    parsed.searchParams.delete("channel_binding");
-    return parsed.toString();
-}
-
-function poolConfig() {
-    const connectionString = databaseUrl();
-    const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
-
-    return {
-        connectionString,
-        ssl: isLocal ? false : { rejectUnauthorized: false },
-    };
-}
-
-const pool = new Pool(poolConfig());
-
-export async function query(text, params) {
-    return pool.query(text, params);
-}
-
-export async function withTransaction(fn) {
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
-        const result = await fn(client);
-        await client.query("COMMIT");
-        return result;
-    } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-    } finally {
-        client.release();
-    }
+    return uri;
 }
 
 export async function connectDB() {
-    const client = await pool.connect();
-    try {
-        await client.query("SELECT 1");
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS users (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                username VARCHAR(50) NOT NULL UNIQUE,
-                email VARCHAR(255) NOT NULL UNIQUE,
-                password TEXT NOT NULL,
-                refresh_token TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-        `);
-    } finally {
-        client.release();
-    }
-
-    await ensureSchema();
-    const host = new URL(databaseUrl()).hostname;
-    console.log(`PostgreSQL connected (${host})`);
+    const uri = mongoUri();
+    await mongoose.connect(uri, {
+        dbName: process.env.DB_NAME || DB_NAME,
+    });
+    await seedDefaults();
+    const { host, name } = mongoose.connection;
+    console.log(`MongoDB connected (${host}/${name})`);
 }
-
-export { pool };

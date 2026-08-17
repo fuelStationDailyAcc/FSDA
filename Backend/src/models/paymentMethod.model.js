@@ -1,74 +1,74 @@
-import { query } from "../db/index.js";
+import mongoose from "mongoose";
+import { assignIfPresent, isValidObjectId, leanDoc, toId } from "../db/helpers.js";
 
-function mapMethod(row) {
+const paymentMethodSchema = new mongoose.Schema(
+    {
+        name: { type: String, required: true, trim: true },
+        code: { type: String, required: true, unique: true, trim: true, lowercase: true },
+        methodType: { type: String, default: "other" },
+        reducesCash: { type: Boolean, default: true },
+        isCashTaken: { type: Boolean, default: false },
+        isActive: { type: Boolean, default: true },
+        sortOrder: { type: Number, default: 0 },
+    },
+    { timestamps: true, collection: "payment_methods" }
+);
+
+export const PaymentMethodModel =
+    mongoose.models.PaymentMethod || mongoose.model("PaymentMethod", paymentMethodSchema);
+
+function mapMethod(doc) {
+    const row = leanDoc(doc);
     if (!row) return null;
     return {
-        id: row.id,
+        id: toId(row._id),
         name: row.name,
         code: row.code,
-        methodType: row.method_type,
-        reducesCash: row.reduces_cash,
-        isCashTaken: row.is_cash_taken,
-        isActive: row.is_active,
-        sortOrder: row.sort_order,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        methodType: row.methodType,
+        reducesCash: row.reducesCash,
+        isCashTaken: row.isCashTaken,
+        isActive: row.isActive,
+        sortOrder: row.sortOrder,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
     };
 }
 
 export const PaymentMethod = {
     async list({ activeOnly = false } = {}) {
-        const result = await query(
-            `SELECT * FROM payment_methods
-             ${activeOnly ? "WHERE is_active = TRUE" : ""}
-             ORDER BY sort_order ASC, name ASC`
-        );
-        return result.rows.map(mapMethod);
+        const filter = activeOnly ? { isActive: true } : {};
+        const rows = await PaymentMethodModel.find(filter).sort({ sortOrder: 1, name: 1 });
+        return rows.map(mapMethod);
     },
 
     async findById(id) {
-        const result = await query("SELECT * FROM payment_methods WHERE id = $1", [id]);
-        return mapMethod(result.rows[0]);
+        if (!isValidObjectId(id)) return null;
+        const doc = await PaymentMethodModel.findById(id);
+        return mapMethod(doc);
     },
 
     async create(data) {
-        const result = await query(
-            `INSERT INTO payment_methods
-             (name, code, method_type, reduces_cash, is_cash_taken, sort_order)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [
-                data.name.trim(),
-                data.code.trim().toLowerCase().replace(/\s+/g, "_"),
-                data.methodType || "other",
-                data.reducesCash !== false,
-                !!data.isCashTaken,
-                data.sortOrder || 0,
-            ]
-        );
-        return mapMethod(result.rows[0]);
+        const doc = await PaymentMethodModel.create({
+            name: data.name.trim(),
+            code: data.code.trim().toLowerCase().replace(/\s+/g, "_"),
+            methodType: data.methodType || "other",
+            reducesCash: data.reducesCash !== false,
+            isCashTaken: !!data.isCashTaken,
+            sortOrder: data.sortOrder || 0,
+        });
+        return mapMethod(doc);
     },
 
     async update(id, data) {
-        const result = await query(
-            `UPDATE payment_methods SET
-                name = COALESCE($2, name),
-                method_type = COALESCE($3, method_type),
-                reduces_cash = COALESCE($4, reduces_cash),
-                is_cash_taken = COALESCE($5, is_cash_taken),
-                is_active = COALESCE($6, is_active),
-                sort_order = COALESCE($7, sort_order),
-                updated_at = NOW()
-             WHERE id = $1 RETURNING *`,
-            [
-                id,
-                data.name?.trim() ?? null,
-                data.methodType ?? null,
-                data.reducesCash ?? null,
-                data.isCashTaken ?? null,
-                data.isActive ?? null,
-                data.sortOrder ?? null,
-            ]
-        );
-        return mapMethod(result.rows[0]);
+        if (!isValidObjectId(id)) return null;
+        const $set = {};
+        assignIfPresent($set, "name", data.name, (value) => value.trim());
+        assignIfPresent($set, "methodType", data.methodType);
+        assignIfPresent($set, "reducesCash", data.reducesCash);
+        assignIfPresent($set, "isCashTaken", data.isCashTaken);
+        assignIfPresent($set, "isActive", data.isActive);
+        assignIfPresent($set, "sortOrder", data.sortOrder);
+        const doc = await PaymentMethodModel.findByIdAndUpdate(id, { $set }, { new: true });
+        return mapMethod(doc);
     },
 };

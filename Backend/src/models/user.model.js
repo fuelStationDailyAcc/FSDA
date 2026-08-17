@@ -1,19 +1,37 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { query, withTransaction } from "../db/index.js";
+import mongoose from "mongoose";
+import { DailyAccount, Expense, LedgerTransaction } from "./accounts.model.js";
+import { AuditLog } from "./auditLog.model.js";
+import { isValidObjectId, leanDoc, toId } from "../db/helpers.js";
 
-function mapUser(row) {
+const userSchema = new mongoose.Schema(
+    {
+        username: { type: String, required: true, unique: true, trim: true, lowercase: true },
+        email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+        password: { type: String, required: true },
+        role: { type: String, default: "manager" },
+        stationName: { type: String, default: null },
+        refreshToken: { type: String, default: null },
+    },
+    { timestamps: true, collection: "users" }
+);
+
+export const UserModel = mongoose.models.User || mongoose.model("User", userSchema);
+
+function mapUser(doc) {
+    const row = leanDoc(doc);
     if (!row) return null;
     return {
-        _id: row.id,
+        _id: toId(row._id),
         username: row.username,
         email: row.email,
         password: row.password,
         role: row.role || "manager",
-        stationName: row.station_name || null,
-        refreshToken: row.refresh_token,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        stationName: row.stationName || null,
+        refreshToken: row.refreshToken,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
     };
 }
 
@@ -52,95 +70,57 @@ function generateRefreshToken(user) {
 
 export const User = {
     async findByUsernameOrEmail({ username, email }) {
-        const values = [];
         const clauses = [];
-
-        if (email) {
-            values.push(email);
-            clauses.push(`email = $${values.length}`);
-        }
-        if (username) {
-            values.push(username);
-            clauses.push(`username = $${values.length}`);
-        }
+        if (email) clauses.push({ email });
+        if (username) clauses.push({ username });
         if (!clauses.length) return null;
 
-        const result = await query(
-            `SELECT * FROM users WHERE ${clauses.join(" OR ")} LIMIT 1`,
-            values
-        );
-        return mapUser(result.rows[0]);
+        const doc = await UserModel.findOne({ $or: clauses });
+        return mapUser(doc);
     },
 
     async findById(id) {
-        const result = await query("SELECT * FROM users WHERE id = $1", [id]);
-        return mapUser(result.rows[0]);
+        if (!isValidObjectId(id)) return null;
+        const doc = await UserModel.findById(id);
+        return mapUser(doc);
     },
 
     async create({ username, email, password, stationName }) {
         const hashed = await bcrypt.hash(password, 10);
-        const result = await query(
-            `INSERT INTO users (username, email, password, station_name)
-             VALUES ($1, $2, $3, $4)
-             RETURNING *`,
-            [
-                username.trim().toLowerCase(),
-                email.trim().toLowerCase(),
-                hashed,
-                stationName.trim(),
-            ]
-        );
-        return mapUser(result.rows[0]);
+        const doc = await UserModel.create({
+            username: username.trim().toLowerCase(),
+            email: email.trim().toLowerCase(),
+            password: hashed,
+            stationName: stationName.trim(),
+        });
+        return mapUser(doc);
     },
 
     async setRefreshToken(id, refreshToken) {
-        const result = await query(
-            `UPDATE users
-             SET refresh_token = $2, updated_at = NOW()
-             WHERE id = $1
-             RETURNING *`,
-            [id, refreshToken]
+        const doc = await UserModel.findByIdAndUpdate(
+            id,
+            { refreshToken },
+            { new: true }
         );
-        return mapUser(result.rows[0]);
+        return mapUser(doc);
     },
 
     async unsetRefreshToken(id) {
-        await query(
-            `UPDATE users
-             SET refresh_token = NULL, updated_at = NOW()
-             WHERE id = $1`,
-            [id]
-        );
+        await UserModel.findByIdAndUpdate(id, { refreshToken: null });
     },
 
     async deleteById(id) {
-        await withTransaction(async (client) => {
-            await client.query(
-                `UPDATE daily_accounts
-                 SET created_by = NULL, closed_by = NULL, reopened_by = NULL
-                 WHERE created_by = $1 OR closed_by = $1 OR reopened_by = $1`,
-                [id]
-            );
-            await client.query(
-                `UPDATE expenses SET created_by = NULL WHERE created_by = $1`,
-                [id]
-            );
-            await client.query(
-                `UPDATE ledger_transactions SET created_by = NULL WHERE created_by = $1`,
-                [id]
-            );
-            await client.query(
-                `UPDATE audit_logs SET user_id = NULL WHERE user_id = $1`,
-                [id]
-            );
-            const result = await client.query(
-                `DELETE FROM users WHERE id = $1 RETURNING id`,
-                [id]
-            );
-            if (!result.rows[0]) {
-                throw new Error("User not found");
-            }
-        });
+        await DailyAccount.updateMany({ createdBy: id }, { $set: { createdBy: null } });
+        await DailyAccount.updateMany({ closedBy: id }, { $set: { closedBy: null } });
+        await DailyAccount.updateMany({ reopenedBy: id }, { $set: { reopenedBy: null } });
+        await Expense.updateMany({ createdBy: id }, { $set: { createdBy: null } });
+        await LedgerTransaction.updateMany({ createdBy: id }, { $set: { createdBy: null } });
+        await AuditLog.updateMany({ userId: id }, { $set: { userId: null } });
+
+        const result = await UserModel.findByIdAndDelete(id);
+        if (!result) {
+            throw new Error("User not found");
+        }
     },
 
     isPasswordCorrect(user, password) {

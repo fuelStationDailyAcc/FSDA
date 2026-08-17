@@ -1,15 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 import {
   addExpense,
   addReading,
   addTransaction,
   closeDay,
-  deleteExpense,
   deleteTransaction,
   fetchDailyAccount,
-  fetchExpenseCategories,
   fetchLedgerNames,
-  fetchPaymentMethods,
   fetchProducts,
   fetchCustomers,
   fetchVendors,
@@ -19,13 +26,13 @@ import {
   upsertCollection,
   type DailyAccountPayload,
   type LedgerTxn,
-  type NamedItem,
+  type MeterReading,
   type Party,
-  type PaymentMethod,
   type FuelProduct,
 } from '../api/accounts'
 import { Modal, ModalForm } from '../components/Modal'
 import Loader from '../components/Loader'
+import { downloadDayReport } from '../lib/dayReport'
 import {
   formatDisplayDate,
   formatINR,
@@ -35,6 +42,36 @@ import {
 } from '../lib/money'
 import { useAuth } from '../context/AuthContext'
 
+type ReadingDraft = Partial<Record<'newReading' | 'oldReading' | 'testingLitres' | 'rateRupees', string>>
+
+type FuelSaveHandle = {
+  getChanges: () => Array<{ id: string; patch: Record<string, string | number> }>
+}
+
+type CashSaveHandle = {
+  getChanges: () => {
+    collections: Array<{ paymentMethodId: string; amountRupees: string }>
+    cashTaken: string | null
+  }
+}
+
+function isReadingDirty(reading: MeterReading, draft?: ReadingDraft) {
+  if (!draft) return false
+  return (
+    Number(draft.newReading) !== Number(reading.newReading) ||
+    Number(draft.oldReading) !== Number(reading.oldReading) ||
+    Number(draft.testingLitres) !== Number(reading.testingLitres) ||
+    Number(draft.rateRupees) !== Number(paiseToInput(reading.ratePaise))
+  )
+}
+
+function isCreditCollection(row: { methodType?: string; code?: string; name?: string }) {
+  return (
+    String(row.methodType || '').toLowerCase() === 'credit' ||
+    String(row.code || '').toLowerCase() === 'credit'
+  )
+}
+
 function DailyAccountsPage() {
   const { user } = useAuth()
   const [date, setDate] = useState(todayISO())
@@ -42,8 +79,6 @@ function DailyAccountsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [products, setProducts] = useState<FuelProduct[]>([])
-  const [methods, setMethods] = useState<PaymentMethod[]>([])
-  const [expenseCats, setExpenseCats] = useState<NamedItem[]>([])
   const [customers, setCustomers] = useState<Party[]>([])
   const [vendors, setVendors] = useState<Party[]>([])
 
@@ -52,8 +87,14 @@ function DailyAccountsPage() {
   const [confirmClose, setConfirmClose] = useState(false)
   const [actualCash, setActualCash] = useState('')
   const [busy, setBusy] = useState(false)
+  const [readingsDirty, setReadingsDirty] = useState(false)
+  const [cashDirty, setCashDirty] = useState(false)
+
+  const fuelSaveRef = useRef<FuelSaveHandle>(null)
+  const cashSaveRef = useRef<CashSaveHandle>(null)
 
   const closed = data?.account.status === 'closed'
+  const dirty = readingsDirty || cashDirty
 
   const load = useCallback(async (d: string) => {
     setLoading(true)
@@ -75,14 +116,10 @@ function DailyAccountsPage() {
   useEffect(() => {
     void Promise.all([
       fetchProducts(true),
-      fetchPaymentMethods(true),
-      fetchExpenseCategories(),
       fetchCustomers(),
       fetchVendors(),
-    ]).then(([p, m, e, c, v]) => {
+    ]).then(([p, c, v]) => {
       setProducts(p.data)
-      setMethods(m.data)
-      setExpenseCats(e.data)
       setCustomers(c.data)
       setVendors(v.data)
     })
@@ -92,16 +129,45 @@ function DailyAccountsPage() {
     setData(next)
   }
 
-  async function saveReading(
-    id: string,
-    patch: Record<string, string | number>
-  ) {
-    if (closed) return
+  function requestDateChange(next: string) {
+    if (next === date) return
+    if (
+      dirty &&
+      !window.confirm('You have unsaved changes. Discard them and change the date?')
+    ) {
+      return
+    }
+    setDate(next)
+  }
+
+  async function handleSave() {
+    if (closed || !dirty) return
+    setBusy(true)
+    setError('')
     try {
-      const res = await updateReading(date, id, patch)
-      applyDay(res.data)
+      const readingChanges = fuelSaveRef.current?.getChanges() ?? []
+      const cashChanges = cashSaveRef.current?.getChanges() ?? {
+        collections: [],
+        cashTaken: null,
+      }
+      let latest: DailyAccountPayload | null = null
+      for (const change of readingChanges) {
+        const res = await updateReading(date, change.id, change.patch)
+        latest = res.data
+      }
+      for (const row of cashChanges.collections) {
+        const res = await upsertCollection(date, row.paymentMethodId, row.amountRupees)
+        latest = res.data
+      }
+      if (cashChanges.cashTaken != null) {
+        const res = await updateCashTaken(date, cashChanges.cashTaken)
+        latest = res.data
+      }
+      if (latest) applyDay(latest)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update reading')
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -128,7 +194,7 @@ function DailyAccountsPage() {
             <button
               type="button"
               className="btn-ghost btn-sm"
-              onClick={() => setDate((d) => shiftDate(d, -1))}
+              onClick={() => requestDateChange(shiftDate(date, -1))}
               aria-label="Previous day"
             >
               ←
@@ -138,13 +204,13 @@ function DailyAccountsPage() {
               <input
                 type="date"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => requestDateChange(e.target.value)}
               />
             </label>
             <button
               type="button"
               className="btn-ghost btn-sm"
-              onClick={() => setDate((d) => shiftDate(d, 1))}
+              onClick={() => requestDateChange(shiftDate(date, 1))}
               aria-label="Next day"
             >
               →
@@ -152,7 +218,7 @@ function DailyAccountsPage() {
             <button
               type="button"
               className="btn-secondary btn-sm"
-              onClick={() => setDate(todayISO())}
+              onClick={() => requestDateChange(todayISO())}
             >
               Today
             </button>
@@ -162,6 +228,32 @@ function DailyAccountsPage() {
             </span>
           </div>
           <div className="toolbar-right">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!data}
+              onClick={() => window.print()}
+            >
+              Print
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!data}
+              onClick={() => data && downloadDayReport(data, user?.stationName)}
+            >
+              Download
+            </button>
+            {!closed ? (
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || !dirty}
+                onClick={() => void handleSave()}
+              >
+                {busy ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+              </button>
+            ) : null}
             {closed ? (
               <button
                 type="button"
@@ -186,7 +278,14 @@ function DailyAccountsPage() {
         </div>
         <p className="muted" style={{ margin: '8px 0 0' }}>
           Accounting date: <strong>{formatDisplayDate(date)}</strong>
+          {user?.stationName ? ` · ${user.stationName}` : null}
           {user?.role ? ` · Role: ${user.role}` : null}
+          {!closed ? (
+            <span className="no-print">
+              {' '}
+              · Edits stay local until you click Save. Reload discards unsaved changes.
+            </span>
+          ) : null}
         </p>
         {error ? <p className="error-text">{error}</p> : null}
         {loading && !data ? <Loader fullPage label="Loading daily account…" /> : null}
@@ -204,11 +303,12 @@ function DailyAccountsPage() {
           </div>
 
           <FuelReadingsSection
+            ref={fuelSaveRef}
             readings={data.readings}
             products={products}
             closed={!!closed}
             total={data.kpis.totalFuelSalesPaise}
-            onSave={saveReading}
+            onDirtyChange={setReadingsDirty}
             onAdd={async (productId) => {
               const res = await addReading(date, productId)
               applyDay(res.data)
@@ -231,31 +331,19 @@ function DailyAccountsPage() {
             }}
             cashSummary={
               <CashSummarySection
+                ref={cashSaveRef}
                 data={data}
                 closed={!!closed}
-                onCollection={async (paymentMethodId, amountRupees) => {
-                  const res = await upsertCollection(date, paymentMethodId, amountRupees)
-                  applyDay(res.data)
-                }}
-                onCashTaken={async (cashTakenRupees) => {
-                  const res = await updateCashTaken(date, cashTakenRupees)
-                  applyDay(res.data)
-                }}
+                onDirtyChange={setCashDirty}
               />
             }
           />
-
-          <PaymentBreakdownSection collections={data.collections} />
 
           <ExpensesSection
             expenses={data.expenses}
             total={data.kpis.totalExpensesPaise}
             closed={!!closed}
             onAdd={() => setExpenseOpen(true)}
-            onDelete={async (id) => {
-              const res = await deleteExpense(date, id)
-              applyDay(res.data)
-            }}
           />
 
           <ReconciliationSection data={data} onClose={() => setCloseOpen(true)} closed={!!closed} />
@@ -265,8 +353,6 @@ function DailyAccountsPage() {
       <AddExpenseModal
         open={expenseOpen}
         onClose={() => setExpenseOpen(false)}
-        categories={expenseCats}
-        methods={methods}
         busy={busy}
         onSave={async (body) => {
           setBusy(true)
@@ -403,36 +489,76 @@ function Kpi({ label, value }: { label: string; value: number }) {
   )
 }
 
-function FuelReadingsSection({
-  readings,
-  products,
-  closed,
-  total,
-  onSave,
-  onAdd,
-}: {
-  readings: DailyAccountPayload['readings']
-  products: FuelProduct[]
-  closed: boolean
-  total: number
-  onSave: (id: string, patch: Record<string, string | number>) => Promise<void>
-  onAdd: (productId: string) => Promise<void>
-}) {
-  const [drafts, setDrafts] = useState<Record<string, Partial<Record<string, string>>>>({})
+const FuelReadingsSection = forwardRef<
+  FuelSaveHandle,
+  {
+    readings: DailyAccountPayload['readings']
+    products: FuelProduct[]
+    closed: boolean
+    total: number
+    onDirtyChange: (dirty: boolean) => void
+    onAdd: (productId: string) => Promise<void>
+  }
+>(function FuelReadingsSection(
+  { readings, products, closed, total, onDirtyChange, onAdd },
+  ref
+) {
+  const [drafts, setDrafts] = useState<Record<string, ReadingDraft>>({})
   const [productId, setProductId] = useState('')
 
   useEffect(() => {
-    const next: Record<string, Partial<Record<string, string>>> = {}
-    for (const r of readings) {
-      next[r.id] = {
-        newReading: String(r.newReading),
-        oldReading: String(r.oldReading),
-        testingLitres: String(r.testingLitres),
-        rateRupees: paiseToInput(r.ratePaise),
+    setDrafts((prev) => {
+      const next: Record<string, ReadingDraft> = {}
+      for (const r of readings) {
+        const existing = prev[r.id]
+        next[r.id] =
+          existing && isReadingDirty(r, existing)
+            ? existing
+            : {
+                newReading: String(r.newReading),
+                oldReading: String(r.oldReading),
+                testingLitres: String(r.testingLitres),
+                rateRupees: paiseToInput(r.ratePaise),
+              }
       }
-    }
-    setDrafts(next)
+      return next
+    })
   }, [readings])
+
+  const dirty = useMemo(
+    () => readings.some((r) => isReadingDirty(r, drafts[r.id])),
+    [readings, drafts]
+  )
+
+  useEffect(() => {
+    onDirtyChange(dirty)
+    return () => onDirtyChange(false)
+  }, [dirty, onDirtyChange])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getChanges() {
+        if (closed) return []
+        return readings.flatMap((r) => {
+          const d = drafts[r.id]
+          if (!d || !isReadingDirty(r, d)) return []
+          return [
+            {
+              id: r.id,
+              patch: {
+                newReading: Number(d.newReading),
+                oldReading: Number(d.oldReading),
+                testingLitres: Number(d.testingLitres),
+                rateRupees: Number(d.rateRupees),
+              },
+            },
+          ]
+        })
+      },
+    }),
+    [closed, drafts, readings]
+  )
 
   return (
     <section className="panel">
@@ -494,14 +620,6 @@ function FuelReadingsSection({
                           [r.id]: { ...prev[r.id], newReading: e.target.value },
                         }))
                       }
-                      onBlur={() =>
-                        void onSave(r.id, {
-                          newReading: Number(d.newReading),
-                          oldReading: Number(d.oldReading),
-                          testingLitres: Number(d.testingLitres),
-                          rateRupees: Number(d.rateRupees),
-                        })
-                      }
                     />
                   </td>
                   <td className="num">
@@ -514,14 +632,6 @@ function FuelReadingsSection({
                           ...prev,
                           [r.id]: { ...prev[r.id], oldReading: e.target.value },
                         }))
-                      }
-                      onBlur={() =>
-                        void onSave(r.id, {
-                          newReading: Number(d.newReading),
-                          oldReading: Number(d.oldReading),
-                          testingLitres: Number(d.testingLitres),
-                          rateRupees: Number(d.rateRupees),
-                        })
                       }
                     />
                   </td>
@@ -537,14 +647,6 @@ function FuelReadingsSection({
                           [r.id]: { ...prev[r.id], testingLitres: e.target.value },
                         }))
                       }
-                      onBlur={() =>
-                        void onSave(r.id, {
-                          newReading: Number(d.newReading),
-                          oldReading: Number(d.oldReading),
-                          testingLitres: Number(d.testingLitres),
-                          rateRupees: Number(d.rateRupees),
-                        })
-                      }
                     />
                   </td>
                   <td className="num">{r.netLitres}</td>
@@ -559,14 +661,6 @@ function FuelReadingsSection({
                           [r.id]: { ...prev[r.id], rateRupees: e.target.value },
                         }))
                       }
-                      onBlur={() =>
-                        void onSave(r.id, {
-                          newReading: Number(d.newReading),
-                          oldReading: Number(d.oldReading),
-                          testingLitres: Number(d.testingLitres),
-                          rateRupees: Number(d.rateRupees),
-                        })
-                      }
                     />
                   </td>
                   <td className="num">{formatINR(r.totalSalePaise)}</td>
@@ -580,39 +674,82 @@ function FuelReadingsSection({
         <span>Total Fuel Sale</span>
         <span>{formatINR(total)}</span>
       </div>
-      <p className="muted" style={{ margin: '8px 0 0', fontSize: 12 }}>
-        LTR, Net and Total Sale are calculated on the server. Rate is stored per reading so historical
+      <p className="muted no-print" style={{ margin: '8px 0 0', fontSize: 12 }}>
+        LTR, Net and Total Sale update after you click Save. Rate is stored per reading so historical
         days stay correct when product rates change later.
       </p>
     </section>
   )
-}
+})
 
-function CashSummarySection({
-  data,
-  closed,
-  onCollection,
-  onCashTaken,
-}: {
-  data: DailyAccountPayload
-  closed: boolean
-  onCollection: (paymentMethodId: string, amountRupees: string) => Promise<void>
-  onCashTaken: (cashTakenRupees: string) => Promise<void>
-}) {
+const CashSummarySection = forwardRef<
+  CashSaveHandle,
+  {
+    data: DailyAccountPayload
+    closed: boolean
+    onDirtyChange: (dirty: boolean) => void
+  }
+>(function CashSummarySection({ data, closed, onDirtyChange }, ref) {
   const [cashTaken, setCashTaken] = useState(paiseToInput(data.account.cashTakenPaise))
   const [amounts, setAmounts] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    setCashTaken(paiseToInput(data.account.cashTakenPaise))
-    const next: Record<string, string> = {}
-    for (const c of data.collections) {
-      next[c.paymentMethodId] = paiseToInput(c.amountPaise)
-    }
-    setAmounts(next)
+    setCashTaken((prev) => {
+      const saved = paiseToInput(data.account.cashTakenPaise)
+      return Number(prev || 0) !== Number(saved) ? prev : saved
+    })
+    setAmounts((prev) => {
+      const next: Record<string, string> = {}
+      for (const c of data.collections) {
+        const saved = paiseToInput(c.amountPaise)
+        const existing = prev[c.paymentMethodId]
+        next[c.paymentMethodId] =
+          existing != null && Number(existing || 0) !== Number(saved) ? existing : saved
+      }
+      return next
+    })
   }, [data])
 
-  const displayRows = data.collections.filter((c) => !c.isCashTaken)
+  const displayRows = data.collections.filter(
+    (c) => !c.isCashTaken && !isCreditCollection(c)
+  )
   const cashTakenRows = data.collections.filter((c) => c.isCashTaken)
+
+  const dirty = useMemo(() => {
+    if (Number(cashTaken || 0) !== Number(paiseToInput(data.account.cashTakenPaise))) {
+      return true
+    }
+    return data.collections.some(
+      (row) =>
+        !isCreditCollection(row) &&
+        Number(amounts[row.paymentMethodId] || 0) !== Number(paiseToInput(row.amountPaise))
+    )
+  }, [amounts, cashTaken, data.account.cashTakenPaise, data.collections])
+
+  useEffect(() => {
+    onDirtyChange(dirty)
+    return () => onDirtyChange(false)
+  }, [dirty, onDirtyChange])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getChanges() {
+        if (closed) return { collections: [], cashTaken: null }
+        const collections = data.collections.flatMap((row) => {
+          if (isCreditCollection(row)) return []
+          const value = amounts[row.paymentMethodId] || '0'
+          if (Number(value) === Number(paiseToInput(row.amountPaise))) return []
+          return [{ paymentMethodId: row.paymentMethodId, amountRupees: value }]
+        })
+        const savedCashTaken = paiseToInput(data.account.cashTakenPaise)
+        const cashTakenChanged =
+          Number(cashTaken || 0) !== Number(savedCashTaken) ? cashTaken || '0' : null
+        return { collections, cashTaken: cashTakenChanged }
+      },
+    }),
+    [amounts, cashTaken, closed, data]
+  )
 
   return (
     <section className="panel">
@@ -631,9 +768,6 @@ function CashSummarySection({
               onChange={(e) =>
                 setAmounts((prev) => ({ ...prev, [row.paymentMethodId]: e.target.value }))
               }
-              onBlur={() =>
-                void onCollection(row.paymentMethodId, amounts[row.paymentMethodId] || '0')
-              }
             />
           </div>
         ))}
@@ -651,24 +785,20 @@ function CashSummarySection({
             disabled={closed}
             value={cashTaken}
             onChange={(e) => setCashTaken(e.target.value)}
-            onBlur={() => void onCashTaken(cashTaken || '0')}
           />
         </div>
         {cashTakenRows.map((row) => (
-            <div className="summary-row" key={row.paymentMethodId}>
-              <span>{row.name}</span>
-              <input
-                disabled={closed}
-                value={amounts[row.paymentMethodId] ?? ''}
-                onChange={(e) =>
-                  setAmounts((prev) => ({ ...prev, [row.paymentMethodId]: e.target.value }))
-                }
-                onBlur={() =>
-                  void onCollection(row.paymentMethodId, amounts[row.paymentMethodId] || '0')
-                }
-              />
-            </div>
-          ))}
+          <div className="summary-row" key={row.paymentMethodId}>
+            <span>{row.name}</span>
+            <input
+              disabled={closed}
+              value={amounts[row.paymentMethodId] ?? ''}
+              onChange={(e) =>
+                setAmounts((prev) => ({ ...prev, [row.paymentMethodId]: e.target.value }))
+              }
+            />
+          </div>
+        ))}
         <div className="summary-row total">
           <span>Closing Cash</span>
           <span>{formatINR(data.cashSummary.expectedClosingCashPaise)}</span>
@@ -676,47 +806,18 @@ function CashSummarySection({
       </div>
     </section>
   )
-}
-
-function PaymentBreakdownSection({
-  collections,
-}: {
-  collections: DailyAccountPayload['collections']
-}) {
-  const online = collections.filter((c) => c.reducesCash && !c.isCashTaken)
-  return (
-    <section className="panel">
-      <h2 className="panel-title">Payment Breakdown</h2>
-      <div className="summary-list">
-        {online.length === 0 ? (
-          <p className="empty-state">No payment methods configured.</p>
-        ) : (
-          online.map((c) => (
-            <div className="summary-row" key={c.id}>
-              <span>
-                {c.name} <span className="muted">({c.methodType})</span>
-              </span>
-              <span>{formatINR(c.amountPaise)}</span>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-  )
-}
+})
 
 function ExpensesSection({
   expenses,
   total,
   closed,
   onAdd,
-  onDelete,
 }: {
   expenses: DailyAccountPayload['expenses']
   total: number
   closed: boolean
   onAdd: () => void
-  onDelete: (id: string) => Promise<void>
 }) {
   return (
     <section className="panel">
@@ -731,17 +832,13 @@ function ExpensesSection({
           <thead>
             <tr>
               <th>Expense</th>
-              <th>Category</th>
-              <th>Payment Mode</th>
               <th className="num">Amount</th>
-              <th>Notes</th>
-              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {expenses.length === 0 ? (
               <tr>
-                <td colSpan={6} className="empty-state">
+                <td colSpan={2} className="empty-state">
                   No expenses for this day.
                 </td>
               </tr>
@@ -749,20 +846,7 @@ function ExpensesSection({
               expenses.map((e) => (
                 <tr key={e.id}>
                   <td>{e.description}</td>
-                  <td>{e.categoryName || '—'}</td>
-                  <td>{e.paymentMethodName || '—'}</td>
                   <td className="num">{formatINR(e.amountPaise)}</td>
-                  <td>{e.notes || '—'}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm"
-                      disabled={closed}
-                      onClick={() => void onDelete(e.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
                 </tr>
               ))
             )}
@@ -1152,23 +1236,16 @@ function TxnQuickBox({
 function AddExpenseModal({
   open,
   onClose,
-  categories,
-  methods,
   busy,
   onSave,
 }: {
   open: boolean
   onClose: () => void
-  categories: NamedItem[]
-  methods: PaymentMethod[]
   busy: boolean
   onSave: (body: Record<string, unknown>) => Promise<void>
 }) {
   const [description, setDescription] = useState('')
-  const [categoryId, setCategoryId] = useState('')
   const [amount, setAmount] = useState('')
-  const [paymentMethodId, setPaymentMethodId] = useState('')
-  const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
 
   async function handleSubmit(e: FormEvent) {
@@ -1178,14 +1255,10 @@ function AddExpenseModal({
     try {
       await onSave({
         description,
-        categoryId: categoryId || null,
         amountRupees: amount,
-        paymentMethodId: paymentMethodId || null,
-        notes: notes || null,
       })
       setDescription('')
       setAmount('')
-      setNotes('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
     }
@@ -1204,18 +1277,7 @@ function AddExpenseModal({
           Expense
           <input value={description} onChange={(e) => setDescription(e.target.value)} required />
         </label>
-        <label className="field">
-          Category
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">Select…</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
+        <label className="field span-2">
           Amount
           <input
             type="number"
@@ -1225,21 +1287,6 @@ function AddExpenseModal({
             onChange={(e) => setAmount(e.target.value)}
             required
           />
-        </label>
-        <label className="field">
-          Payment Mode
-          <select value={paymentMethodId} onChange={(e) => setPaymentMethodId(e.target.value)}>
-            <option value="">Select…</option>
-            {methods.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field span-2">
-          Notes
-          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </label>
       </ModalForm>
     </Modal>

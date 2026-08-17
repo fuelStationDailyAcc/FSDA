@@ -1,66 +1,87 @@
-import { query } from "../db/index.js";
+import mongoose from "mongoose";
+import { assignIfPresent, isValidObjectId, leanDoc, toId } from "../db/helpers.js";
 
-function mapCat(row) {
+const expenseCategorySchema = new mongoose.Schema(
+    {
+        name: { type: String, required: true, unique: true, trim: true },
+        isActive: { type: Boolean, default: true },
+        sortOrder: { type: Number, default: 0 },
+    },
+    { timestamps: true, collection: "expense_categories" }
+);
+
+const transactionCategorySchema = new mongoose.Schema(
+    {
+        name: { type: String, required: true, trim: true },
+        type: { type: String, default: "BOTH" },
+        isActive: { type: Boolean, default: true },
+        sortOrder: { type: Number, default: 0 },
+    },
+    { timestamps: true, collection: "transaction_categories" }
+);
+
+export const ExpenseCategoryModel =
+    mongoose.models.ExpenseCategory || mongoose.model("ExpenseCategory", expenseCategorySchema);
+
+export const TransactionCategoryModel =
+    mongoose.models.TransactionCategory ||
+    mongoose.model("TransactionCategory", transactionCategorySchema);
+
+function mapCat(doc) {
+    const row = leanDoc(doc);
     if (!row) return null;
     return {
-        id: row.id,
+        id: toId(row._id),
         name: row.name,
-        isActive: row.is_active,
-        sortOrder: row.sort_order,
-        createdAt: row.created_at,
+        isActive: row.isActive,
+        sortOrder: row.sortOrder,
+        createdAt: row.createdAt,
     };
 }
 
-function mapTxnCat(row) {
+function mapTxnCat(doc) {
+    const row = leanDoc(doc);
     if (!row) return null;
     return {
-        id: row.id,
+        id: toId(row._id),
         name: row.name,
         type: row.type,
-        isActive: row.is_active,
-        sortOrder: row.sort_order,
-        createdAt: row.created_at,
+        isActive: row.isActive,
+        sortOrder: row.sortOrder,
+        createdAt: row.createdAt,
     };
 }
 
 export const ExpenseCategory = {
     async list({ activeOnly = false } = {}) {
-        const result = await query(
-            `SELECT * FROM expense_categories
-             ${activeOnly ? "WHERE is_active = TRUE" : ""}
-             ORDER BY sort_order ASC, name ASC`
-        );
-        return result.rows.map(mapCat);
+        const filter = activeOnly ? { isActive: true } : {};
+        const rows = await ExpenseCategoryModel.find(filter).sort({ sortOrder: 1, name: 1 });
+        return rows.map(mapCat);
     },
 
     async create({ name, sortOrder = 0 }) {
-        const result = await query(
-            `INSERT INTO expense_categories (name, sort_order) VALUES ($1, $2) RETURNING *`,
-            [name.trim(), sortOrder]
-        );
-        return mapCat(result.rows[0]);
+        const doc = await ExpenseCategoryModel.create({
+            name: name.trim(),
+            sortOrder,
+        });
+        return mapCat(doc);
     },
 
     async update(id, { name, isActive, sortOrder }) {
-        const result = await query(
-            `UPDATE expense_categories SET
-                name = COALESCE($2, name),
-                is_active = COALESCE($3, is_active),
-                sort_order = COALESCE($4, sort_order)
-             WHERE id = $1 RETURNING *`,
-            [id, name?.trim() ?? null, isActive ?? null, sortOrder ?? null]
-        );
-        return mapCat(result.rows[0]);
+        if (!isValidObjectId(id)) return null;
+        const $set = {};
+        assignIfPresent($set, "name", name, (value) => value.trim());
+        assignIfPresent($set, "isActive", isActive);
+        assignIfPresent($set, "sortOrder", sortOrder);
+        const doc = await ExpenseCategoryModel.findByIdAndUpdate(id, { $set }, { new: true });
+        return mapCat(doc);
     },
 };
 
 export const TransactionCategory = {
     async list({ activeOnly = false } = {}) {
-        const result = await query(
-            `SELECT * FROM transaction_categories
-             ${activeOnly ? "WHERE is_active = TRUE" : ""}
-             ORDER BY sort_order ASC, name ASC`
-        );
-        return result.rows.map(mapTxnCat);
+        const filter = activeOnly ? { isActive: true } : {};
+        const rows = await TransactionCategoryModel.find(filter).sort({ sortOrder: 1, name: 1 });
+        return rows.map(mapTxnCat);
     },
 };

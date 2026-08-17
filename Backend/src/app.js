@@ -31,10 +31,25 @@ app.use("/api/v1/users", userRouter);
 app.use("/api/v1/accounts", accountsRouter);
 
 app.use((err, req, res, next) => {
-    if (err.code === "23505") {
+    if (err.code === 11000) {
+        const field = Object.keys(err.keyPattern || err.keyValue || {})[0];
+        const message =
+            field === "username" || field === "email"
+                ? "User with this username or email already exists"
+                : field === "idempotencyKey"
+                  ? "Duplicate transaction submission"
+                  : "Duplicate record";
         return res.status(409).json({
             success: false,
-            message: "User with this username or email already exists",
+            message,
+            errors: [],
+        });
+    }
+
+    if (err.name === "CastError") {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid id",
             errors: [],
         });
     }
