@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { query } from "../db/index.js";
+import { query, withTransaction } from "../db/index.js";
 
 function mapUser(row) {
     if (!row) return null;
@@ -10,6 +10,7 @@ function mapUser(row) {
         email: row.email,
         password: row.password,
         role: row.role || "manager",
+        stationName: row.station_name || null,
         refreshToken: row.refresh_token,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -23,6 +24,7 @@ function toPublicUser(user) {
         username: user.username,
         email: user.email,
         role: user.role || "manager",
+        stationName: user.stationName || null,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
     };
@@ -75,13 +77,18 @@ export const User = {
         return mapUser(result.rows[0]);
     },
 
-    async create({ username, email, password }) {
+    async create({ username, email, password, stationName }) {
         const hashed = await bcrypt.hash(password, 10);
         const result = await query(
-            `INSERT INTO users (username, email, password)
-             VALUES ($1, $2, $3)
+            `INSERT INTO users (username, email, password, station_name)
+             VALUES ($1, $2, $3, $4)
              RETURNING *`,
-            [username.trim().toLowerCase(), email.trim().toLowerCase(), hashed]
+            [
+                username.trim().toLowerCase(),
+                email.trim().toLowerCase(),
+                hashed,
+                stationName.trim(),
+            ]
         );
         return mapUser(result.rows[0]);
     },
@@ -104,6 +111,36 @@ export const User = {
              WHERE id = $1`,
             [id]
         );
+    },
+
+    async deleteById(id) {
+        await withTransaction(async (client) => {
+            await client.query(
+                `UPDATE daily_accounts
+                 SET created_by = NULL, closed_by = NULL, reopened_by = NULL
+                 WHERE created_by = $1 OR closed_by = $1 OR reopened_by = $1`,
+                [id]
+            );
+            await client.query(
+                `UPDATE expenses SET created_by = NULL WHERE created_by = $1`,
+                [id]
+            );
+            await client.query(
+                `UPDATE ledger_transactions SET created_by = NULL WHERE created_by = $1`,
+                [id]
+            );
+            await client.query(
+                `UPDATE audit_logs SET user_id = NULL WHERE user_id = $1`,
+                [id]
+            );
+            const result = await client.query(
+                `DELETE FROM users WHERE id = $1 RETURNING id`,
+                [id]
+            );
+            if (!result.rows[0]) {
+                throw new Error("User not found");
+            }
+        });
     },
 
     isPasswordCorrect(user, password) {

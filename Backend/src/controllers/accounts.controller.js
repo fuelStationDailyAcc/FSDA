@@ -163,6 +163,19 @@ export const listTxnCategories = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, data, "Transaction categories fetched"));
 });
 
+export const listLedgerNames = asyncHandler(async (req, res) => {
+    const data = await DailyAccountService.listLedgerNames({
+        type: req.query.type,
+        search: req.query.search,
+    });
+    return res.status(200).json(new ApiResponse(200, data, "Ledger names fetched"));
+});
+
+export const getLedgerTotals = asyncHandler(async (_req, res) => {
+    const data = await DailyAccountService.getLedgerTotals();
+    return res.status(200).json(new ApiResponse(200, data, "Ledger totals fetched"));
+});
+
 export const listCustomers = asyncHandler(async (req, res) => {
     const data = await Customer.list();
     return res.status(200).json(new ApiResponse(200, data, "Customers fetched"));
@@ -178,6 +191,12 @@ export const updateCustomer = asyncHandler(async (req, res) => {
     const data = await Customer.update(req.params.id, req.body);
     if (!data) throw new ApiError(404, "Customer not found");
     return res.status(200).json(new ApiResponse(200, data, "Customer updated"));
+});
+
+export const deleteCustomer = asyncHandler(async (req, res) => {
+    const data = await Customer.delete(req.params.id);
+    if (!data) throw new ApiError(404, "Customer not found");
+    return res.status(200).json(new ApiResponse(200, data, "Customer deleted"));
 });
 
 export const listVendors = asyncHandler(async (req, res) => {

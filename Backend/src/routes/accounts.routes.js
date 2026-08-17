@@ -10,11 +10,14 @@ import {
     createPaymentMethod,
     createProduct,
     createVendor,
+    deleteCustomer,
     deleteExpense,
     deleteTransaction,
     getDailyAccount,
+    getLedgerTotals,
     listCustomers,
     listExpenseCategories,
+    listLedgerNames,
     listPaymentMethods,
     listProducts,
     listTxnCategories,
@@ -60,9 +63,13 @@ router.patch("/expense-categories/:id", updateExpenseCategory);
 
 router.get("/transaction-categories", listTxnCategories);
 
+router.get("/ledger-names", listLedgerNames);
+router.get("/ledger-totals", getLedgerTotals);
+
 router.get("/customers", listCustomers);
 router.post("/customers", createCustomer);
 router.patch("/customers/:id", updateCustomer);
+router.delete("/customers/:id", deleteCustomer);
 
 router.get("/vendors", listVendors);
 router.post("/vendors", createVendor);

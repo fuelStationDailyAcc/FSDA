@@ -2,24 +2,28 @@ import { pool } from "./index.js";
 
 const DEFAULT_PRODUCTS = [
     { name: "MS", product_type: "MS", rate_paise: 10491, sort_order: 1 },
-    { name: "MS Pump 2", product_type: "MS", rate_paise: 10491, sort_order: 2 },
-    { name: "HSD", product_type: "HSD", rate_paise: 9484, sort_order: 3 },
-    { name: "HSD Pump 2", product_type: "HSD", rate_paise: 9484, sort_order: 4 },
-    { name: "CNG", product_type: "CNG", rate_paise: 0, sort_order: 5 },
+    { name: "HSD", product_type: "HSD", rate_paise: 9484, sort_order: 2 },
+    { name: "CNG", product_type: "CNG", rate_paise: 0, sort_order: 3 },
 ];
+
+const LEGACY_PUMP_PRODUCT_NAMES = ["MS Pump 2", "HSD Pump 2"];
 
 const DEFAULT_PAYMENT_METHODS = [
     { name: "Cash", code: "cash", method_type: "cash", reduces_cash: false, is_cash_taken: false, sort_order: 1 },
     { name: "Credit", code: "credit", method_type: "credit", reduces_cash: true, is_cash_taken: false, sort_order: 2 },
-    { name: "Debit", code: "debit_card", method_type: "card", reduces_cash: true, is_cash_taken: false, sort_order: 3 },
-    { name: "Paytm", code: "paytm", method_type: "online", reduces_cash: true, is_cash_taken: false, sort_order: 4 },
-    { name: "GPay", code: "gpay", method_type: "online", reduces_cash: true, is_cash_taken: false, sort_order: 5 },
-    { name: "PhonePe", code: "phonepe", method_type: "online", reduces_cash: true, is_cash_taken: false, sort_order: 6 },
-    { name: "UPI", code: "upi", method_type: "upi", reduces_cash: true, is_cash_taken: false, sort_order: 7 },
-    { name: "Card", code: "card", method_type: "card", reduces_cash: true, is_cash_taken: false, sort_order: 8 },
-    { name: "Bank Transfer", code: "bank_transfer", method_type: "online", reduces_cash: true, is_cash_taken: false, sort_order: 9 },
-    { name: "Manual Online", code: "manual_online", method_type: "online", reduces_cash: true, is_cash_taken: true, sort_order: 10 },
-    { name: "Other", code: "other", method_type: "other", reduces_cash: true, is_cash_taken: false, sort_order: 11 },
+    { name: "Card", code: "card", method_type: "card", reduces_cash: true, is_cash_taken: false, sort_order: 3 },
+    { name: "Online Payments", code: "online_payments", method_type: "online", reduces_cash: true, is_cash_taken: false, sort_order: 4 },
+    { name: "Other", code: "other", method_type: "other", reduces_cash: true, is_cash_taken: false, sort_order: 5 },
+];
+
+const LEGACY_ONLINE_APP_CODES = [
+    "paytm",
+    "gpay",
+    "phonepe",
+    "upi",
+    "bank_transfer",
+    "manual_online",
+    "debit_card",
 ];
 
 const DEFAULT_EXPENSE_CATEGORIES = [
@@ -58,6 +62,11 @@ export async function ensureSchema() {
         await client.query(`
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'manager'
+        `);
+
+        await client.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS station_name VARCHAR(150)
         `);
 
         await client.query(`
@@ -268,6 +277,8 @@ async function seedDefaults(client) {
                 [p.name, p.product_type, p.rate_paise, p.sort_order]
             );
         }
+    } else {
+        await deactivateLegacyPumpProducts(client);
     }
 
     const methods = await client.query("SELECT COUNT(*)::int AS c FROM payment_methods");
@@ -280,6 +291,8 @@ async function seedDefaults(client) {
                 [m.name, m.code, m.method_type, m.reduces_cash, m.is_cash_taken, m.sort_order]
             );
         }
+    } else {
+        await consolidateOnlinePaymentMethods(client);
     }
 
     const expenseCats = await client.query("SELECT COUNT(*)::int AS c FROM expense_categories");
@@ -303,4 +316,89 @@ async function seedDefaults(client) {
             );
         }
     }
+}
+
+async function deactivateLegacyPumpProducts(client) {
+    await client.query(
+        `UPDATE fuel_products
+         SET is_active = FALSE, updated_at = NOW()
+         WHERE name = ANY($1::text[])`,
+        [LEGACY_PUMP_PRODUCT_NAMES]
+    );
+    await client.query(
+        `UPDATE fuel_products SET sort_order = 1, updated_at = NOW() WHERE name = 'MS'`
+    );
+    await client.query(
+        `UPDATE fuel_products SET sort_order = 2, updated_at = NOW() WHERE name = 'HSD'`
+    );
+    await client.query(
+        `UPDATE fuel_products SET sort_order = 3, updated_at = NOW() WHERE name = 'CNG'`
+    );
+}
+
+async function consolidateOnlinePaymentMethods(client) {
+    await client.query(
+        `INSERT INTO payment_methods
+         (name, code, method_type, reduces_cash, is_cash_taken, sort_order, is_active)
+         VALUES ('Online Payments', 'online_payments', 'online', TRUE, FALSE, 4, TRUE)
+         ON CONFLICT (code) DO UPDATE SET
+            name = EXCLUDED.name,
+            method_type = EXCLUDED.method_type,
+            reduces_cash = EXCLUDED.reduces_cash,
+            is_cash_taken = EXCLUDED.is_cash_taken,
+            is_active = TRUE,
+            sort_order = EXCLUDED.sort_order,
+            updated_at = NOW()`
+    );
+
+    const online = await client.query(
+        `SELECT id FROM payment_methods WHERE code = 'online_payments' LIMIT 1`
+    );
+    const onlineId = online.rows[0]?.id;
+
+    if (onlineId) {
+        // Move any legacy app collection amounts into Online Payments
+        await client.query(
+            `INSERT INTO daily_payment_collections (daily_account_id, payment_method_id, amount_paise)
+             SELECT c.daily_account_id, $1::uuid, SUM(c.amount_paise)::bigint
+             FROM daily_payment_collections c
+             JOIN payment_methods m ON m.id = c.payment_method_id
+             WHERE m.code = ANY($2::text[])
+             GROUP BY c.daily_account_id
+             ON CONFLICT (daily_account_id, payment_method_id)
+             DO UPDATE SET
+                amount_paise = daily_payment_collections.amount_paise + EXCLUDED.amount_paise,
+                updated_at = NOW()`,
+            [onlineId, LEGACY_ONLINE_APP_CODES]
+        );
+
+        await client.query(
+            `DELETE FROM daily_payment_collections c
+             USING payment_methods m
+             WHERE c.payment_method_id = m.id
+               AND m.code = ANY($1::text[])`,
+            [LEGACY_ONLINE_APP_CODES]
+        );
+    }
+
+    await client.query(
+        `UPDATE payment_methods
+         SET is_active = FALSE, updated_at = NOW()
+         WHERE code = ANY($1::text[])`,
+        [LEGACY_ONLINE_APP_CODES]
+    );
+
+    // Keep Card/Other/Cash/Credit active with sensible sort order
+    await client.query(
+        `UPDATE payment_methods SET sort_order = 1, is_active = TRUE, updated_at = NOW() WHERE code = 'cash'`
+    );
+    await client.query(
+        `UPDATE payment_methods SET sort_order = 2, is_active = TRUE, updated_at = NOW() WHERE code = 'credit'`
+    );
+    await client.query(
+        `UPDATE payment_methods SET sort_order = 3, is_active = TRUE, updated_at = NOW() WHERE code = 'card'`
+    );
+    await client.query(
+        `UPDATE payment_methods SET sort_order = 5, is_active = TRUE, updated_at = NOW() WHERE code = 'other'`
+    );
 }

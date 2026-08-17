@@ -203,6 +203,7 @@ async function loadReadings(dailyAccountId) {
          FROM fuel_meter_readings r
          JOIN fuel_products p ON p.id = r.product_id
          WHERE r.daily_account_id = $1
+           AND p.is_active = TRUE
          ORDER BY r.sort_order ASC, p.name ASC`,
         [dailyAccountId]
     );
@@ -215,6 +216,7 @@ async function loadCollections(dailyAccountId) {
          FROM daily_payment_collections c
          JOIN payment_methods m ON m.id = c.payment_method_id
          WHERE c.daily_account_id = $1
+           AND m.is_active = TRUE
          ORDER BY m.sort_order ASC`,
         [dailyAccountId]
     );
@@ -228,6 +230,31 @@ async function loadCollections(dailyAccountId) {
         isCashTaken: row.is_cash_taken,
         amountPaise: Number(row.amount_paise),
     }));
+}
+
+async function syncActivePaymentCollections(dailyAccountId) {
+    const methods = await query(
+        `SELECT id FROM payment_methods
+         WHERE is_active = TRUE AND (reduces_cash = TRUE OR is_cash_taken = TRUE)
+         ORDER BY sort_order ASC`
+    );
+    for (const method of methods.rows) {
+        await query(
+            `INSERT INTO daily_payment_collections (daily_account_id, payment_method_id, amount_paise)
+             VALUES ($1, $2, 0)
+             ON CONFLICT (daily_account_id, payment_method_id) DO NOTHING`,
+            [dailyAccountId, method.id]
+        );
+    }
+    // Drop leftover rows for inactive methods (amounts already migrated on schema ensure)
+    await query(
+        `DELETE FROM daily_payment_collections c
+         USING payment_methods m
+         WHERE c.payment_method_id = m.id
+           AND c.daily_account_id = $1
+           AND m.is_active = FALSE`,
+        [dailyAccountId]
+    );
 }
 
 async function loadExpenses(dailyAccountId) {
@@ -328,6 +355,7 @@ async function loadTransactions(dailyAccountId, filters = {}) {
 }
 
 async function buildDayPayload(account, filters = {}) {
+    await syncActivePaymentCollections(account.id);
     const readings = await loadReadings(account.id);
     const collections = await loadCollections(account.id);
     const expenses = await loadExpenses(account.id);
@@ -604,9 +632,9 @@ export const DailyAccountService = {
         }
         const amountPaise = toPaise(payload.amountRupees);
         if (amountPaise <= 0) throw new ApiError(400, "Amount must be greater than 0");
-        if (!payload.category?.trim()) throw new ApiError(400, "Category is required");
-        if (!payload.paymentMethodId) throw new ApiError(400, "Payment method is required");
-        if (!payload.description?.trim()) throw new ApiError(400, "Description is required");
+        const personName = String(payload.personName || payload.description || "").trim();
+        if (!personName) throw new ApiError(400, "Name of the person is required");
+        const category = String(payload.category || type).trim() || type;
 
         const txnDate = normalizeDate(payload.date || accountDate);
 
@@ -623,11 +651,11 @@ export const DailyAccountService = {
                     type,
                     txnDate,
                     payload.time || null,
-                    payload.description.trim(),
-                    payload.partyType || null,
+                    personName,
+                    payload.partyType || "other",
                     payload.partyId || null,
-                    payload.category.trim(),
-                    payload.paymentMethodId,
+                    category,
+                    payload.paymentMethodId || null,
                     amountPaise,
                     payload.referenceNumber || null,
                     payload.notes || null,
@@ -736,5 +764,76 @@ export const DailyAccountService = {
         });
 
         return buildDayPayload(mapDaily(result.rows[0]));
+    },
+
+    async listLedgerNames({ type, search } = {}) {
+        const values = [];
+        const clauses = [`TRIM(t.description) <> ''`];
+
+        if (type && ["DEBIT", "CREDIT"].includes(String(type).toUpperCase())) {
+            values.push(String(type).toUpperCase());
+            clauses.push(`t.type = $${values.length}`);
+        }
+        if (search?.trim()) {
+            values.push(`%${search.trim()}%`);
+            clauses.push(`t.description ILIKE $${values.length}`);
+        }
+
+        const ledgerResult = await query(
+            `SELECT DISTINCT TRIM(t.description) AS name
+             FROM ledger_transactions t
+             WHERE ${clauses.join(" AND ")}
+             ORDER BY name ASC
+             LIMIT 100`,
+            values
+        );
+
+        const partyValues = [];
+        let partyFilter = "";
+        if (search?.trim()) {
+            partyValues.push(`%${search.trim()}%`);
+            partyFilter = `WHERE name ILIKE $1`;
+        }
+
+        const [customers, vendors] = await Promise.all([
+            query(
+                `SELECT DISTINCT TRIM(name) AS name FROM customers ${partyFilter} ORDER BY name ASC LIMIT 50`,
+                partyValues
+            ),
+            query(
+                `SELECT DISTINCT TRIM(name) AS name FROM vendors ${partyFilter} ORDER BY name ASC LIMIT 50`,
+                partyValues
+            ),
+        ]);
+
+        const seen = new Set();
+        const names = [];
+        for (const row of [...ledgerResult.rows, ...customers.rows, ...vendors.rows]) {
+            const name = String(row.name || "").trim();
+            if (!name) continue;
+            const key = name.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            names.push(name);
+        }
+        names.sort((a, b) => a.localeCompare(b));
+        return names.slice(0, 50);
+    },
+
+    async getLedgerTotals() {
+        const result = await query(
+            `SELECT
+                COALESCE(SUM(CASE WHEN type = 'CREDIT' THEN amount_paise ELSE 0 END), 0)::bigint AS total_credit_paise,
+                COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount_paise ELSE 0 END), 0)::bigint AS total_debit_paise
+             FROM ledger_transactions`
+        );
+        const row = result.rows[0] || {};
+        const totalCreditPaise = Number(row.total_credit_paise || 0);
+        const totalDebitPaise = Number(row.total_debit_paise || 0);
+        return {
+            totalCreditPaise,
+            totalDebitPaise,
+            totalUdhaarPaise: totalCreditPaise - totalDebitPaise,
+        };
     },
 };

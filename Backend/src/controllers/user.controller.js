@@ -38,10 +38,10 @@ const sendAuthResponse = async (res, user, message, statusCode = 200) => {
 };
 
 export const registerUser = asyncHandler(async (req, res) => {
-    const { username, email, password } = req.body;
+    const { username, email, password, stationName } = req.body;
 
-    if ([username, email, password].some((field) => !field?.trim())) {
-        throw new ApiError(400, "Username, email, and password are required");
+    if ([username, email, password, stationName].some((field) => !field?.trim())) {
+        throw new ApiError(400, "Username, email, password, and station name are required");
     }
 
     if (password.trim().length < 6) {
@@ -61,6 +61,7 @@ export const registerUser = asyncHandler(async (req, res) => {
         username: username.trim(),
         email: email.trim(),
         password,
+        stationName: stationName.trim(),
     });
 
     return sendAuthResponse(res, user, "User registered successfully", 201);
@@ -106,4 +107,14 @@ export const getCurrentUser = asyncHandler(async (req, res) => {
         .json(
             new ApiResponse(200, User.toPublicUser(req.user), "Current user fetched successfully")
         );
+});
+
+export const deleteAccount = asyncHandler(async (req, res) => {
+    await User.deleteById(req.user._id);
+
+    return res
+        .status(200)
+        .clearCookie("accessToken", cookieOptions)
+        .clearCookie("refreshToken", cookieOptions)
+        .json(new ApiResponse(200, {}, "Account deleted successfully"));
 });

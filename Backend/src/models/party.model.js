@@ -78,6 +78,17 @@ export const Customer = {
         );
         return mapParty(result.rows[0], "customer");
     },
+
+    async delete(id) {
+        await query(
+            `UPDATE ledger_transactions
+             SET party_id = NULL, updated_at = NOW()
+             WHERE party_type = 'customer' AND party_id = $1`,
+            [id]
+        );
+        const result = await query(`DELETE FROM customers WHERE id = $1 RETURNING *`, [id]);
+        return mapParty(result.rows[0], "customer");
+    },
 };
 
 export const Vendor = {
