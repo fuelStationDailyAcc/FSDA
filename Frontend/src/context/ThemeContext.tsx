@@ -23,7 +23,8 @@ type ThemeContextValue = {
   setTheme: (theme: Theme) => void
 }
 
-const STORAGE_KEY = 'theme'
+const STORAGE_KEY = 'petrobook-theme'
+const LEGACY_STORAGE_KEY = 'theme'
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function isTheme(value: string | null | undefined): value is Theme {
@@ -35,10 +36,11 @@ export function nextTheme(theme: Theme): Theme {
 }
 
 export function readStoredTheme(): Theme {
-  if (typeof window === 'undefined') return 'orange'
+  if (typeof window === 'undefined') return 'dark'
   const stored = localStorage.getItem(STORAGE_KEY)
   if (isTheme(stored)) return stored
-  return 'orange'
+  localStorage.removeItem(LEGACY_STORAGE_KEY)
+  return 'dark'
 }
 
 const THEME_COLORS: Record<Theme, string> = {
@@ -58,23 +60,23 @@ export function applyTheme(theme: Theme) {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof document !== 'undefined' && isTheme(document.documentElement.dataset.theme)) {
-      return document.documentElement.dataset.theme
-    }
-    return readStoredTheme()
-  })
+  const [theme, setThemeState] = useState<Theme>(() => readStoredTheme())
 
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
 
   const setTheme = useCallback((next: Theme) => {
+    applyTheme(next)
     setThemeState(next)
   }, [])
 
   const toggleTheme = useCallback(() => {
-    setThemeState((current) => nextTheme(current))
+    setThemeState((current) => {
+      const next = nextTheme(current)
+      applyTheme(next)
+      return next
+    })
   }, [])
 
   const value = useMemo(

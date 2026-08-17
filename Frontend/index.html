@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark" class="dark" style="color-scheme: dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
@@ -16,7 +16,7 @@
       name="description"
       content="Ledger, meters, and station operations for PetroBook."
     />
-    <meta name="theme-color" content="#002d56" />
+    <meta name="theme-color" content="#000000" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="PetroBook" />
@@ -25,15 +25,16 @@
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem('theme')
+          var stored = localStorage.getItem('petrobook-theme')
           var theme =
-            stored === 'orange' || stored === 'light' || stored === 'dark' ? stored : 'orange'
+            stored === 'orange' || stored === 'light' || stored === 'dark' ? stored : 'dark'
+          if (!stored) localStorage.removeItem('theme')
           document.documentElement.dataset.theme = theme
           document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
           document.documentElement.classList.toggle('dark', theme === 'dark')
           var colors = { orange: '#002d56', light: '#ffffff', dark: '#000000' }
           var meta = document.querySelector('meta[name="theme-color"]')
-          if (meta) meta.setAttribute('content', colors[theme] || colors.orange)
+          if (meta) meta.setAttribute('content', colors[theme] || colors.dark)
         } catch (e) {}
       })()
     </script>

@@ -8,6 +8,7 @@ import {
 } from '../api/staff'
 import { Modal, ModalForm } from '../components/Modal'
 import Loader from '../components/Loader'
+import PasswordInput from '../components/PasswordInput'
 import {
   DEFAULT_STAFF_PERMISSIONS,
   PERMISSION_AREAS,
@@ -195,8 +196,7 @@ function StaffPage() {
             </label>
             <label className="field">
               Password
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
@@ -329,8 +329,7 @@ function StaffPage() {
         >
           <label className="field span-2">
             New password
-            <input
-              type="password"
+            <PasswordInput
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               autoComplete="new-password"

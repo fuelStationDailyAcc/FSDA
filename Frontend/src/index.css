@@ -1,4 +1,3 @@
-:root,
 html[data-theme='orange'] {
   --bg: #2a241c;
   --fg: #002d56;
@@ -66,6 +65,7 @@ html[data-theme='light'] {
   background: var(--bg);
 }
 
+:root,
 html[data-theme='dark'] {
   --bg: #000000;
   --fg: #ffffff;

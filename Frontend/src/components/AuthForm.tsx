@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import PasswordInput from './PasswordInput'
 
 function AuthForm() {
   const { login, register } = useAuth()
@@ -89,8 +90,7 @@ function AuthForm() {
       )}
       <label className="auth-field">
         Password
-        <input
-          type="password"
+        <PasswordInput
           name="password"
           autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
           minLength={6}
