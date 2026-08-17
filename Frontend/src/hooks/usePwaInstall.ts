@@ -5,6 +5,9 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+let savedPrompt: BeforeInstallPromptEvent | null = null
+const listeners = new Set<() => void>()
+
 function isStandaloneDisplay() {
   return (
     window.matchMedia('(display-mode: standalone)').matches ||
@@ -16,37 +19,52 @@ function isIosDevice() {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent)
 }
 
+function notify() {
+  for (const listener of listeners) listener()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault()
+    savedPrompt = event as BeforeInstallPromptEvent
+    notify()
+  })
+  window.addEventListener('appinstalled', () => {
+    savedPrompt = null
+    notify()
+  })
+}
+
 export function usePwaInstall() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(
+    () => savedPrompt
+  )
   const [installed, setInstalled] = useState(() =>
     typeof window === 'undefined' ? false : isStandaloneDisplay()
   )
 
   useEffect(() => {
-    const onPrompt = (event: Event) => {
-      event.preventDefault()
-      setDeferredPrompt(event as BeforeInstallPromptEvent)
+    const sync = () => {
+      setDeferredPrompt(savedPrompt)
+      setInstalled(isStandaloneDisplay())
     }
-    const onInstalled = () => {
-      setDeferredPrompt(null)
-      setInstalled(true)
-    }
-
-    window.addEventListener('beforeinstallprompt', onPrompt)
-    window.addEventListener('appinstalled', onInstalled)
+    listeners.add(sync)
+    sync()
     return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt)
-      window.removeEventListener('appinstalled', onInstalled)
+      listeners.delete(sync)
     }
   }, [])
 
   const install = useCallback(async () => {
-    if (!deferredPrompt) return false
-    await deferredPrompt.prompt()
-    const choice = await deferredPrompt.userChoice
+    if (!savedPrompt) return false
+    await savedPrompt.prompt()
+    const choice = await savedPrompt.userChoice
+    savedPrompt = null
     setDeferredPrompt(null)
+    if (choice.outcome === 'accepted') setInstalled(true)
+    notify()
     return choice.outcome === 'accepted'
-  }, [deferredPrompt])
+  }, [])
 
   return {
     canInstall: Boolean(deferredPrompt) && !installed,

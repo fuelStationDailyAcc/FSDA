@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import heroBg from '../assets/hero-bg.png'
 import BrandLogo from './BrandLogo'
+import PwaInstallButton from './PwaInstallButton'
 import '../pages/HeroPage.css'
 
 function PageShell({ children }: { children: ReactNode }) {
@@ -16,6 +17,7 @@ function PageShell({ children }: { children: ReactNode }) {
             <span className="hero-brand-sub">Daily Accounts</span>
           </div>
         </div>
+        <PwaInstallButton />
       </header>
       {children}
     </main>

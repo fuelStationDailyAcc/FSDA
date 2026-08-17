@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import heroBg from '../assets/hero-bg.png'
 import BrandLogo from './BrandLogo'
+import PwaInstallButton from './PwaInstallButton'
 import { useAuth } from '../context/AuthContext'
 import { hasPermission, isOwner } from '../lib/permissions'
 import './AppShell.css'
@@ -42,6 +43,7 @@ function AppShell() {
           {owner && user?.role !== 'staff' ? <NavLink to="/staff">Staff</NavLink> : null}
         </nav>
         <div className="app-user">
+          <PwaInstallButton />
           <span className="app-user-name">{user?.username}</span>
           <button type="button" className="btn-ghost" onClick={handleLogout}>
             Log out

@@ -12,6 +12,7 @@ import PartiesPage from './pages/PartiesPage'
 import SettingsPage from './pages/SettingsPage'
 import StaffPage from './pages/StaffPage'
 import PwaUpdateBanner from './components/PwaUpdateBanner'
+import './hooks/usePwaInstall'
 
 function AppRouter() {
   return (

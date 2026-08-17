@@ -18,6 +18,7 @@ import {
   deleteCollection,
   deleteTransaction,
   fetchDailyAccount,
+  updateCashTaken,
   fetchLedgerNames,
   fetchPaymentMethods,
   fetchProducts,
@@ -46,6 +47,7 @@ import {
   formatINRFloor,
   formatLitres,
   formatRate,
+  paiseToInput,
   shiftDate,
   todayISO,
 } from '../lib/money'
@@ -82,6 +84,13 @@ function isCashMethod(row: { methodType?: string; code?: string }) {
 }
 
 const METHOD_TYPE_ORDER = ['card', 'online', 'bank']
+
+function collectionNoteLabel(method: PaymentMethod) {
+  const type = String(method.methodType || '').toLowerCase()
+  if (type === 'card') return 'Card Name'
+  if (type === 'online') return 'Payment method'
+  return 'Note'
+}
 
 function collectionMethodSections(
   methods: PaymentMethod[],
@@ -141,6 +150,7 @@ function DailyAccountsPage() {
   const [closeOpen, setCloseOpen] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [actualCash, setActualCash] = useState('')
+  const [cashTakenDraft, setCashTakenDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [readingsDirty, setReadingsDirty] = useState(false)
   const [liveFuelSalesPaise, setLiveFuelSalesPaise] = useState<number | null>(null)
@@ -151,18 +161,27 @@ function DailyAccountsPage() {
   const canWrite = hasPermission(user, 'accounts.write')
   const owner = isOwner(user)
   const locked = Boolean(closed || !canWrite)
-  const dirty = readingsDirty
+  const savedCashTakenPaise = data?.account.cashTakenPaise ?? 0
+  const draftCashTakenPaise = (() => {
+    if (cashTakenDraft.trim() === '') return 0
+    const n = Math.round(Number(cashTakenDraft) * 100)
+    return Number.isFinite(n) ? n : savedCashTakenPaise
+  })()
+  const cashTakenDirty = draftCashTakenPaise !== savedCashTakenPaise
+  const dirty = readingsDirty || cashTakenDirty
   const fuelSalesPaise = liveFuelSalesPaise ?? data?.kpis.totalFuelSalesPaise ?? 0
   const closingCashPaise =
     (data?.kpis.closingCashPaise ?? 0) +
-    (fuelSalesPaise - (data?.kpis.totalFuelSalesPaise ?? 0))
+    (fuelSalesPaise - (data?.kpis.totalFuelSalesPaise ?? 0)) +
+    savedCashTakenPaise -
+    Math.max(0, draftCashTakenPaise)
 
   const load = useCallback(async (d: string) => {
     setLoading(true)
     setError('')
     try {
       const payload = await fetchDailyAccount(d, { limit: 200 })
-      setData(payload.data)
+      applyDay(payload.data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load daily account')
     } finally {
@@ -192,6 +211,27 @@ function DailyAccountsPage() {
     setData(next)
   }
 
+  useEffect(() => {
+    setCashTakenDraft(paiseToInput(data?.account.cashTakenPaise ?? 0))
+  }, [date, data?.account.cashTakenPaise])
+
+  async function persistCashTaken(latest?: DailyAccountPayload | null) {
+    const current = latest ?? data
+    if (locked || !current) return latest ?? current
+    const nextPaise =
+      cashTakenDraft.trim() === '' ? 0 : Math.round(Number(cashTakenDraft) * 100)
+    if (!Number.isFinite(nextPaise) || nextPaise < 0) {
+      throw new Error('Cash taken must be 0 or more')
+    }
+    if (nextPaise === current.account.cashTakenPaise) {
+      setCashTakenDraft(paiseToInput(nextPaise))
+      return current
+    }
+    const res = await updateCashTaken(date, cashTakenDraft.trim() === '' ? 0 : cashTakenDraft)
+    applyDay(res.data)
+    return res.data
+  }
+
   function requestDateChange(next: string) {
     if (next === date) return
     if (
@@ -215,6 +255,7 @@ function DailyAccountsPage() {
         latest = res.data
       }
       if (latest) applyDay(latest)
+      await persistCashTaken(latest)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -425,6 +466,12 @@ function DailyAccountsPage() {
             data={data}
             liveFuelSalesPaise={fuelSalesPaise}
             liveClosingCashPaise={closingCashPaise}
+            cashTakenDraft={cashTakenDraft}
+            cashTakenPaise={Math.max(0, draftCashTakenPaise)}
+            onCashTakenChange={setCashTakenDraft}
+            onCashTakenSave={() => void persistCashTaken().catch((err) => {
+              setError(err instanceof Error ? err.message : 'Failed to save cash taken')
+            })}
             onClose={() => setCloseOpen(true)}
             closed={locked}
           />
@@ -475,8 +522,31 @@ function DailyAccountsPage() {
                 <span>{formatINR(data.reconciliation.expensesPaise)}</span>
               </div>
               <div className="summary-row">
-                <span>Cash Taken</span>
-                <span>{formatINR(data.reconciliation.cashTakenPaise)}</span>
+                <span>
+                  Cash Taken Home
+                  <span className="summary-row-hint">Subtracted from closing cash</span>
+                </span>
+                {locked ? (
+                  <span>{formatINR(data.reconciliation.cashTakenPaise)}</span>
+                ) : (
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={cashTakenDraft}
+                    onChange={(e) => setCashTakenDraft(e.target.value)}
+                    onBlur={() => {
+                      void persistCashTaken().catch((err) => {
+                        setError(err instanceof Error ? err.message : 'Failed to save cash taken')
+                      })
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur()
+                    }}
+                    aria-label="Cash taken home"
+                  />
+                )}
               </div>
               <div className="summary-row total">
                 <span>Expected Closing Cash</span>
@@ -497,19 +567,14 @@ function DailyAccountsPage() {
             {actualCash !== '' ? (
               <p
                 className={
-                  Math.round(Number(actualCash) * 100) -
-                    data.reconciliation.expectedClosingCashPaise ===
-                  0
+                  Math.round(Number(actualCash) * 100) - closingCashPaise === 0
                     ? 'diff-pos'
                     : 'diff-neg'
                 }
                 style={{ fontWeight: 800 }}
               >
                 Difference:{' '}
-                {formatINR(
-                  Math.round(Number(actualCash) * 100) -
-                    data.reconciliation.expectedClosingCashPaise
-                )}
+                {formatINR(Math.round(Number(actualCash) * 100) - closingCashPaise)}
               </p>
             ) : null}
             {!confirmClose ? (
@@ -538,6 +603,7 @@ function DailyAccountsPage() {
                   onClick={async () => {
                     setBusy(true)
                     try {
+                      await persistCashTaken()
                       const res = await closeDay(date, actualCash)
                       applyDay(res.data)
                       setCloseOpen(false)
@@ -858,7 +924,7 @@ function CollectionMethodBox({
       </div>
       <form className="cash-method-form" onSubmit={(e) => void handleSubmit(e)}>
         <label className="field">
-          Note
+          {collectionNoteLabel(method)}
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -968,12 +1034,20 @@ function ReconciliationSection({
   data,
   liveFuelSalesPaise,
   liveClosingCashPaise,
+  cashTakenDraft,
+  cashTakenPaise,
+  onCashTakenChange,
+  onCashTakenSave,
   onClose,
   closed,
 }: {
   data: DailyAccountPayload
   liveFuelSalesPaise: number
   liveClosingCashPaise: number
+  cashTakenDraft: string
+  cashTakenPaise: number
+  onCashTakenChange: (value: string) => void
+  onCashTakenSave: () => void
   onClose: () => void
   closed: boolean
 }) {
@@ -1015,8 +1089,27 @@ function ReconciliationSection({
             <span>{formatINR(data.reconciliation.expensesPaise)}</span>
           </div>
           <div className="summary-row">
-            <span>Cash Taken</span>
-            <span>{formatINR(data.reconciliation.cashTakenPaise)}</span>
+            <span>
+              Cash Taken Home
+              <span className="summary-row-hint">Subtracted from closing cash</span>
+            </span>
+            {closed ? (
+              <span>{formatINR(cashTakenPaise)}</span>
+            ) : (
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={cashTakenDraft}
+                onChange={(e) => onCashTakenChange(e.target.value)}
+                onBlur={onCashTakenSave}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur()
+                }}
+                aria-label="Cash taken home"
+              />
+            )}
           </div>
         </div>
         <div className="summary-list">

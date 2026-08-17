@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'prompt',
         injectRegister: false,
+        devOptions: {
+          enabled: true,
+          type: 'module',
+        },
         includeAssets: [
           'favicon-32x32.png',
           'apple-touch-icon.png',

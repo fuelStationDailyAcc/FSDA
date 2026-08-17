@@ -567,6 +567,7 @@ html[data-theme='orange'] .app-bg {
 .summary-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
@@ -591,6 +592,14 @@ html[data-theme='orange'] .app-bg {
   font: inherit;
   font-weight: 600;
   color: var(--fg);
+}
+
+.summary-row-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .cash-method-box {
@@ -1104,7 +1113,8 @@ html[data-theme='orange'] .data-table input.cell-input:focus {
   .loader,
   .loader-overlay,
   .modal-backdrop,
-  .error-text {
+  .error-text,
+  .summary-row-hint {
     display: none !important;
   }
 

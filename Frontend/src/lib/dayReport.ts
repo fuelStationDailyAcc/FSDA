@@ -113,7 +113,7 @@ export function buildDayReportCsv(
   }
   lines.push(row('Expense', rupees(data.cashSummary.totalExpensePaise)))
   lines.push(row('Total Cash', rupees(data.cashSummary.totalCashPaise)))
-  lines.push(row('Cash Taken', rupees(data.cashSummary.cashTakenPaise)))
+  lines.push(row('Cash Taken Home', rupees(data.cashSummary.cashTakenPaise)))
   lines.push(row('Closing Cash', rupees(data.cashSummary.expectedClosingCashPaise)))
   blank()
 
@@ -132,7 +132,7 @@ export function buildDayReportCsv(
   lines.push(row('Credit Sales', rupees(data.reconciliation.creditSalesPaise)))
   lines.push(row('Online Collections', rupees(data.reconciliation.onlineCollectionsPaise)))
   lines.push(row('Expenses', rupees(data.reconciliation.expensesPaise)))
-  lines.push(row('Cash Taken', rupees(data.reconciliation.cashTakenPaise)))
+  lines.push(row('Cash Taken Home', rupees(data.reconciliation.cashTakenPaise)))
   lines.push(row('Expected Closing Cash', rupees(data.reconciliation.expectedClosingCashPaise)))
   lines.push(row('Actual Closing Cash', rupees(data.reconciliation.actualClosingCashPaise)))
   lines.push(row('Difference', rupees(data.reconciliation.differencePaise)))
