@@ -1,7 +1,7 @@
 {
     "name": "fsda-backend",
     "version": "1.0.0",
-    "description": "FuelSNC Daily Accounts API",
+    "description": "FUELSTATION Daily Accounts API",
     "type": "module",
     "main": "src/index.js",
     "scripts": {
