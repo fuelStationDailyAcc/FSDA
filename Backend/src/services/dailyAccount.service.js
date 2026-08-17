@@ -51,7 +51,7 @@ function mapDaily(doc) {
     };
 }
 
-function mapReading(row, product) {
+function mapReading(row, product, previousNewReading = null) {
     return {
         id: toId(row._id),
         dailyAccountId: toId(row.dailyAccountId),
@@ -61,6 +61,11 @@ function mapReading(row, product) {
         meterLabel: row.meterLabel,
         newReading: Number(row.newReading),
         oldReading: Number(row.oldReading),
+        previousNewReading:
+            previousNewReading === null || previousNewReading === undefined
+                ? null
+                : Number(previousNewReading),
+        oldReadingManual: Boolean(row.oldReadingManual),
         litres: Number(row.litres),
         testingLitres: Number(row.testingLitres),
         netLitres: Number(row.netLitres),
@@ -68,6 +73,34 @@ function mapReading(row, product) {
         totalSalePaise: Number(row.totalSalePaise),
         sortOrder: row.sortOrder,
     };
+}
+
+function applyMeterFields(doc, { newReading, oldReading, testingLitres } = {}, { strict = true } = {}) {
+    const nextNew = newReading !== undefined ? parseLitres(newReading) : Number(doc.newReading);
+    const nextOld = oldReading !== undefined ? parseLitres(oldReading) : Number(doc.oldReading);
+    const nextTesting =
+        testingLitres !== undefined ? parseLitres(testingLitres) : Number(doc.testingLitres);
+    const ratePaise = Number(doc.ratePaise);
+
+    if (nextNew < nextOld) {
+        if (!strict) return false;
+        throw new ApiError(400, "New reading cannot be less than old reading");
+    }
+
+    const litres = calcLitres(nextNew, nextOld);
+    const netLitres = calcNetLitres(litres, nextTesting);
+    if (netLitres < 0) {
+        if (!strict) return false;
+        throw new ApiError(400, "Testing litres cannot exceed LTR");
+    }
+
+    doc.newReading = nextNew;
+    doc.oldReading = nextOld;
+    doc.testingLitres = nextTesting;
+    doc.litres = litres;
+    doc.netLitres = netLitres;
+    doc.totalSalePaise = calcFuelSalePaise(netLitres, ratePaise);
+    return true;
 }
 
 function mapExpense(row, category, paymentMethod) {
@@ -148,7 +181,8 @@ function byIdMap(docs) {
     return new Map(docs.map((doc) => [toId(doc._id), doc]));
 }
 
-async function getPreviousProductReading(productId, beforeDate) {
+async function findAdjacentProductReading(productId, date, direction) {
+    const isPrevious = direction === "previous";
     const result = await FuelMeterReading.aggregate([
         { $match: { productId: asObjectId(productId) } },
         {
@@ -160,12 +194,69 @@ async function getPreviousProductReading(productId, beforeDate) {
             },
         },
         { $unwind: "$day" },
-        { $match: { "day.accountDate": { $lt: beforeDate } } },
-        { $sort: { "day.accountDate": -1, updatedAt: -1 } },
+        {
+            $match: {
+                "day.accountDate": isPrevious ? { $lt: date } : { $gt: date },
+            },
+        },
+        { $sort: { "day.accountDate": isPrevious ? -1 : 1, updatedAt: -1 } },
         { $limit: 1 },
     ]);
 
-    return result[0] ? Number(result[0].newReading) : 0;
+    return result[0] || null;
+}
+
+async function getPreviousProductReading(productId, beforeDate) {
+    const row = await findAdjacentProductReading(productId, beforeDate, "previous");
+    return row ? Number(row.newReading) : null;
+}
+
+async function applyOpeningFromPrevious(readingId, previousNewReading) {
+    if (previousNewReading === null || previousNewReading === undefined) return false;
+    const doc = await FuelMeterReading.findById(readingId);
+    if (!doc) return false;
+    const prevNew = Number(previousNewReading);
+    const currentOld = Number(doc.oldReading || 0);
+    const currentNew = Number(doc.newReading || 0);
+    if (currentOld === prevNew) return false;
+
+    const meterUnchanged = currentNew === currentOld;
+    const applied = applyMeterFields(
+        doc,
+        {
+            oldReading: prevNew,
+            newReading: meterUnchanged ? prevNew : currentNew,
+        },
+        { strict: false }
+    );
+    if (!applied) return false;
+    doc.oldReadingManual = false;
+    await doc.save();
+    return true;
+}
+
+async function propagateNewReadingToNextDay(productId, fromDate, nextNewReading) {
+    const adjacent = await findAdjacentProductReading(productId, fromDate, "next");
+    if (!adjacent || adjacent.day?.status === "closed") return;
+
+    const doc = await FuelMeterReading.findById(adjacent._id);
+    if (!doc) return;
+
+    const currentOld = Number(doc.oldReading || 0);
+    const currentNew = Number(doc.newReading || 0);
+    const meterUnchanged = currentNew === currentOld;
+    const applied = applyMeterFields(
+        doc,
+        {
+            oldReading: nextNewReading,
+            newReading: meterUnchanged ? nextNewReading : currentNew,
+        },
+        { strict: false }
+    );
+    if (applied) {
+        doc.oldReadingManual = false;
+        await doc.save();
+    }
 }
 
 async function ensureDailyAccount(accountDate, userId) {
@@ -192,13 +283,14 @@ async function ensureDailyAccount(accountDate, userId) {
 
     let sort = 0;
     for (const product of products) {
-        const oldReading = await getPreviousProductReading(product._id, date);
+        const oldReading = (await getPreviousProductReading(product._id, date)) ?? 0;
         await FuelMeterReading.updateOne(
             { dailyAccountId: accountDoc._id, productId: product._id, meterLabel: product.name },
             {
                 $setOnInsert: {
                     newReading: oldReading,
                     oldReading,
+                    oldReadingManual: false,
                     litres: 0,
                     testingLitres: 0,
                     netLitres: 0,
@@ -223,13 +315,17 @@ async function ensureDailyAccount(accountDate, userId) {
     return account;
 }
 
-async function loadReadings(dailyAccountId) {
+async function loadReadings(dailyAccountId, accountDate) {
     const readings = await FuelMeterReading.find({ dailyAccountId }).sort({ sortOrder: 1 }).lean();
-    const productIds = [...new Set(readings.map((row) => row.productId).filter(Boolean))];
+    const productIds = [...new Set(readings.map((row) => toId(row.productId)).filter(Boolean))];
     const products = await FuelProductModel.find({
         _id: { $in: productIds },
     }).lean();
     const productsById = byIdMap(products);
+    const previousEntries = await Promise.all(
+        productIds.map(async (id) => [id, await getPreviousProductReading(id, accountDate)])
+    );
+    const previousByProduct = new Map(previousEntries);
 
     return readings
         .filter((row) => productsById.has(toId(row.productId)))
@@ -239,7 +335,13 @@ async function loadReadings(dailyAccountId) {
             const nameB = productsById.get(toId(b.productId))?.name || "";
             return nameA.localeCompare(nameB);
         })
-        .map((row) => mapReading(row, productsById.get(toId(row.productId))));
+        .map((row) =>
+            mapReading(
+                row,
+                productsById.get(toId(row.productId)),
+                previousByProduct.get(toId(row.productId))
+            )
+        );
 }
 
 async function loadCollections(dailyAccountId) {
@@ -287,7 +389,7 @@ async function syncActiveProductReadings(dailyAccountId, accountDate) {
     for (const product of products) {
         if (existingProductIds.has(toId(product._id))) continue;
 
-        const oldReading = await getPreviousProductReading(product._id, accountDate);
+        const oldReading = (await getPreviousProductReading(product._id, accountDate)) ?? 0;
         sort += 1;
         await FuelMeterReading.updateOne(
             { dailyAccountId, productId: product._id, meterLabel: product.name },
@@ -295,6 +397,7 @@ async function syncActiveProductReadings(dailyAccountId, accountDate) {
                 $setOnInsert: {
                     newReading: oldReading,
                     oldReading,
+                    oldReadingManual: false,
                     litres: 0,
                     testingLitres: 0,
                     netLitres: 0,
@@ -308,6 +411,9 @@ async function syncActiveProductReadings(dailyAccountId, accountDate) {
     }
 
     for (const row of existing) {
+        const previousNew = await getPreviousProductReading(row.productId, accountDate);
+        await applyOpeningFromPrevious(row._id, previousNew);
+
         const product = productsById.get(toId(row.productId));
         if (!product) continue;
         const unused =
@@ -446,7 +552,7 @@ async function buildDayPayload(account, filters = {}) {
     if (account.status !== "closed") {
         await syncActiveProductReadings(account.id, account.accountDate);
     }
-    const readings = await loadReadings(account.id);
+    const readings = await loadReadings(account.id, account.accountDate);
     const collections = await loadCollections(account.id);
     const expenses = await loadExpenses(account.id);
     const ledger = await loadTransactions(account.id, filters);
@@ -712,49 +818,41 @@ export const DailyAccountService = {
         });
         if (!existing) throw new ApiError(404, "Meter reading not found");
 
-        const newReading =
-            payload.newReading !== undefined
-                ? parseLitres(payload.newReading)
-                : Number(existing.newReading);
-        const oldReading =
-            payload.oldReading !== undefined
-                ? parseLitres(payload.oldReading)
-                : Number(existing.oldReading);
-        const testingLitres =
-            payload.testingLitres !== undefined
-                ? parseLitres(payload.testingLitres)
-                : Number(existing.testingLitres);
-        const ratePaise = Number(existing.ratePaise);
-
-        if (newReading < oldReading) {
-            throw new ApiError(400, "New reading cannot be less than old reading");
-        }
-
-        const litres = calcLitres(newReading, oldReading);
-        const netLitres = calcNetLitres(litres, testingLitres);
-        if (netLitres < 0) {
-            throw new ApiError(400, "Testing litres cannot exceed LTR");
-        }
-        const totalSalePaise = calcFuelSalePaise(netLitres, ratePaise);
-
-        existing.newReading = newReading;
-        existing.oldReading = oldReading;
-        existing.litres = litres;
-        existing.testingLitres = testingLitres;
-        existing.netLitres = netLitres;
-        existing.ratePaise = ratePaise;
-        existing.totalSalePaise = totalSalePaise;
+        const previousClose = await getPreviousProductReading(
+            existing.productId,
+            account.accountDate
+        );
+        const openingFromPrevious = previousClose !== null;
+        applyMeterFields(existing, {
+            newReading: payload.newReading,
+            oldReading: openingFromPrevious ? previousClose : payload.oldReading,
+            testingLitres: payload.testingLitres,
+        });
+        if (openingFromPrevious) existing.oldReadingManual = false;
         if (payload.meterLabel !== undefined && payload.meterLabel !== null) {
             existing.meterLabel = payload.meterLabel;
         }
         await existing.save();
+
+        if (payload.newReading !== undefined) {
+            await propagateNewReadingToNextDay(
+                existing.productId,
+                account.accountDate,
+                Number(existing.newReading)
+            );
+        }
 
         await writeAudit({
             entityType: "fuel_meter_reading",
             entityId: readingId,
             action: "update",
             userId,
-            details: { litres, netLitres, ratePaise, totalSalePaise },
+            details: {
+                litres: existing.litres,
+                netLitres: existing.netLitres,
+                ratePaise: existing.ratePaise,
+                totalSalePaise: existing.totalSalePaise,
+            },
         });
 
         return buildDayPayload(account);
@@ -769,7 +867,7 @@ export const DailyAccountService = {
         const product = await FuelProductModel.findById(productId);
         if (!product) throw new ApiError(404, "Product not found");
 
-        const oldReading = await getPreviousProductReading(productId, account.accountDate);
+        const oldReading = (await getPreviousProductReading(productId, account.accountDate)) ?? 0;
         const last = await FuelMeterReading.findOne({ dailyAccountId: account.id })
             .sort({ sortOrder: -1 })
             .select("sortOrder")
@@ -781,6 +879,7 @@ export const DailyAccountService = {
             meterLabel: product.name,
             newReading: oldReading,
             oldReading,
+            oldReadingManual: false,
             litres: 0,
             testingLitres: 0,
             netLitres: 0,

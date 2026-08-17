@@ -25,6 +25,7 @@ const fuelMeterReadingSchema = new mongoose.Schema(
         meterLabel: { type: String, default: null },
         newReading: { type: Number, default: 0 },
         oldReading: { type: Number, default: 0 },
+        oldReadingManual: { type: Boolean, default: false },
         litres: { type: Number, default: 0 },
         testingLitres: { type: Number, default: 0 },
         netLitres: { type: Number, default: 0 },
