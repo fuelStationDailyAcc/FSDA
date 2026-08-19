@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchAccountHistory, type DailyAccountSummary } from '../api/accounts'
 import Loader from '../components/Loader'
-import { formatDisplayDate, formatINR, formatINRFloor } from '../lib/money'
+import { formatDisplayDate, formatINR, formatINRFloor, diffLineClass, diffTextClass } from '../lib/money'
 
 function AccountHistoryPage() {
   const navigate = useNavigate()
@@ -129,7 +129,74 @@ function AccountHistoryPage() {
 
           <section className="panel">
             <h2 className="panel-title">Past accounts</h2>
-            <div className="table-wrap">
+            <div className="mobile-data-list">
+              {items.length === 0 ? (
+                <p className="muted">
+                  No daily accounts yet. Create a day from Daily Accounts and it will show up here.
+                </p>
+              ) : (
+                items.map((row) => (
+                  <article
+                    key={row.id}
+                    className="mobile-data-card clickable-row"
+                    onClick={() => openDay(row.accountDate)}
+                  >
+                    <div className="mobile-data-card-head">
+                      {formatDisplayDate(row.accountDate)}
+                      <span
+                        className={`status-pill ${row.status === 'closed' ? 'closed' : ''}`}
+                        style={{ marginLeft: 8 }}
+                      >
+                        <span className="status-dot" />
+                        {row.status === 'closed' ? 'Closed' : 'Open'}
+                      </span>
+                    </div>
+                    <div className="mobile-data-rows">
+                      <div className="mobile-data-row">
+                        <span>Fuel sales</span>
+                        <span>{formatINRFloor(row.totalFuelSalesPaise)}</span>
+                      </div>
+                      <div className="mobile-data-row">
+                        <span>Credit</span>
+                        <span>{formatINR(row.totalCreditPaise)}</span>
+                      </div>
+                      <div className="mobile-data-row">
+                        <span>Debit</span>
+                        <span>{formatINR(row.totalDebitPaise)}</span>
+                      </div>
+                      <div className="mobile-data-row">
+                        <span>Expenses</span>
+                        <span>{formatINR(row.totalExpensesPaise)}</span>
+                      </div>
+                      <div className="mobile-data-row">
+                        <span>Closing cash</span>
+                        <span>{formatINRFloor(row.closingCashPaise)}</span>
+                      </div>
+                      <div className={`mobile-data-row ${diffLineClass(row.pendingPaise ?? 0, 'pending')}`}>
+                        <span>Pending</span>
+                        <span>{formatINRFloor(row.pendingPaise ?? 0)}</span>
+                      </div>
+                      <div className={`mobile-data-row ${diffLineClass(row.advancePaise ?? 0, 'advance')}`}>
+                        <span>Advance</span>
+                        <span>{formatINRFloor(row.advancePaise ?? 0)}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      style={{ marginTop: 10 }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openDay(row.accountDate)
+                      }}
+                    >
+                      Open
+                    </button>
+                  </article>
+                ))
+              )}
+            </div>
+            <div className="table-wrap table-wrap-scroll-hint desktop-table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -172,8 +239,12 @@ function AccountHistoryPage() {
                         <td className="num">{formatINR(row.totalDebitPaise)}</td>
                         <td className="num">{formatINR(row.totalExpensesPaise)}</td>
                         <td className="num">{formatINRFloor(row.closingCashPaise)}</td>
-                        <td className="num">{formatINRFloor(row.pendingPaise ?? 0)}</td>
-                        <td className="num">{formatINRFloor(row.advancePaise ?? 0)}</td>
+                        <td className={`num ${diffTextClass(row.pendingPaise ?? 0, 'pending')}`}>
+                          {formatINRFloor(row.pendingPaise ?? 0)}
+                        </td>
+                        <td className={`num ${diffTextClass(row.advancePaise ?? 0, 'advance')}`}>
+                          {formatINRFloor(row.advancePaise ?? 0)}
+                        </td>
                         <td>
                           <button
                             type="button"

@@ -128,13 +128,30 @@ export function buildDayReportCsv(
   blank()
 
   lines.push(row('Daily Reconciliation'))
-  lines.push(row('Fuel Sales', rupees(data.reconciliation.fuelSalesPaise)))
-  lines.push(row('Credit Sales', rupees(data.reconciliation.creditSalesPaise)))
-  lines.push(row('Online Collections', rupees(data.reconciliation.onlineCollectionsPaise)))
+  lines.push(row('Fuel Sale', rupees(data.reconciliation.fuelSalesPaise)))
+  lines.push(row('Credit', rupees(data.reconciliation.creditSalesPaise)))
+  lines.push(row('Debit', rupees(data.kpis.totalDebitPaise)))
+  lines.push(row('Online Payments', rupees(data.reconciliation.onlineCollectionsPaise)))
+  const online = data.cashSummary.breakdown.reduce<Record<string, number>>((acc, row) => {
+    if (!row.reducesCash || row.isCashTaken) return acc
+    const type = String(row.methodType || '').toLowerCase()
+    if (type === 'credit' || type === 'cash') return acc
+    if (type === 'upi') {
+      acc.online = (acc.online || 0) + row.amountPaise
+      return acc
+    }
+    if (['card', 'online', 'bank'].includes(type)) {
+      acc[type] = (acc[type] || 0) + row.amountPaise
+    }
+    return acc
+  }, {})
+  if (online.card) lines.push(row('  Card', rupees(online.card)))
+  if (online.online) lines.push(row('  Online Payment', rupees(online.online)))
+  if (online.bank) lines.push(row('  Bank Payment', rupees(online.bank)))
   lines.push(row('Expenses', rupees(data.reconciliation.expensesPaise)))
-  lines.push(row('Cash Taken Home', rupees(data.reconciliation.cashTakenPaise)))
-  lines.push(row('Expected Closing Cash', rupees(data.reconciliation.expectedClosingCashPaise)))
-  lines.push(row('Actual Closing Cash', rupees(data.reconciliation.actualClosingCashPaise)))
+  lines.push(row('Expected Cash', rupees(data.cashSummary.totalCashPaise)))
+  lines.push(row('Cash Taken', rupees(data.reconciliation.cashTakenPaise)))
+  lines.push(row('Remaining Cash', rupees(data.reconciliation.expectedClosingCashPaise)))
   lines.push(row('Pending', rupees(data.reconciliation.pendingPaise)))
   lines.push(row('Advance', rupees(data.reconciliation.advancePaise)))
 

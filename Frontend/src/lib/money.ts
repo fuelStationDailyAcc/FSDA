@@ -103,3 +103,19 @@ export function formatDisplayDate(iso: string): string {
     year: "numeric",
   })
 }
+
+/** Green for profit / pending, red for loss / advance — text color only. */
+export function diffTextClass(paise: number, mode: "signed" | "pending" | "advance" = "signed"): string {
+  if (mode === "pending") return paise > 0 ? "diff-pos" : ""
+  if (mode === "advance") return paise > 0 ? "diff-neg" : ""
+  if (paise < 0) return "diff-neg"
+  if (paise > 0) return "diff-pos"
+  return ""
+}
+
+/** Green/red text plus top accent line for cards and summary rows. */
+export function diffLineClass(paise: number, mode: "signed" | "pending" | "advance" = "signed"): string {
+  const text = diffTextClass(paise, mode)
+  if (!text) return ""
+  return `${text} indicator-line`
+}

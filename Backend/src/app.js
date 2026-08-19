@@ -2,6 +2,7 @@ import "./loadEnv.js";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import mongoose from "mongoose";
 import userRouter from "./routes/user.routes.js";
 import accountsRouter from "./routes/accounts.routes.js";
 import staffRouter from "./routes/staff.routes.js";
@@ -28,6 +29,15 @@ app.use(
 app.use(express.json({ limit: "64kb" }));
 app.use(express.urlencoded({ extended: true, limit: "64kb" }));
 app.use(cookieParser());
+
+app.get("/health", (_req, res) => {
+    const dbOk = mongoose.connection.readyState === 1;
+    res.status(dbOk ? 200 : 503).json({
+        success: dbOk,
+        status: dbOk ? "ok" : "degraded",
+        timestamp: new Date().toISOString(),
+    });
+});
 
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/accounts", accountsRouter);

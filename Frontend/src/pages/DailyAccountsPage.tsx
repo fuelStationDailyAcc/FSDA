@@ -52,6 +52,7 @@ import {
   paiseToInput,
   shiftDate,
   todayISO,
+  diffLineClass,
 } from '../lib/money'
 import { useAuth } from '../context/AuthContext'
 import { hasPermission, isOwner } from '../lib/permissions'
@@ -89,6 +90,36 @@ function isCashMethod(row: { methodType?: string; code?: string }) {
 }
 
 const METHOD_TYPE_ORDER = ['card', 'online', 'bank']
+
+const ONLINE_BREAKDOWN_ORDER = [
+  { type: 'card', label: 'Card' },
+  { type: 'online', label: 'Online Payment' },
+  { type: 'bank', label: 'Bank Payment' },
+] as const
+
+function onlinePaymentBreakdown(data: DailyAccountPayload) {
+  const amounts: Record<string, number> = {}
+  for (const row of data.cashSummary.breakdown) {
+    if (!row.reducesCash || row.isCashTaken) continue
+    const type = String(row.methodType || '').toLowerCase()
+    if (type === 'credit' || type === 'cash') continue
+    if (type === 'upi') {
+      amounts.online = (amounts.online || 0) + row.amountPaise
+      continue
+    }
+    if (METHOD_TYPE_ORDER.includes(type) || type) {
+      amounts[type] = (amounts[type] || 0) + row.amountPaise
+    }
+  }
+  const typedTotal = ONLINE_BREAKDOWN_ORDER.reduce(
+    (sum, { type }) => sum + (amounts[type] || 0),
+    0
+  )
+  return {
+    amounts,
+    total: typedTotal + (data.cashSummary.otherNonCashPaise || 0),
+  }
+}
 
 function collectionNoteLabel(method: PaymentMethod) {
   const type = String(method.methodType || '').toLowerCase()
@@ -519,78 +550,27 @@ function DailyAccountsPage() {
       >
         {data ? (
           <>
-            <div className="summary-list">
-              <div className="summary-row">
-                <span>Fuel Sales</span>
-                <span>{formatINRFloor(fuelSalesPaise)}</span>
-              </div>
-              <div className="summary-row">
-                <span>Credit Sales</span>
-                <span>{formatINR(data.reconciliation.creditSalesPaise)}</span>
-              </div>
-              <div className="summary-row">
-                <span>Online Collections</span>
-                <span>{formatINR(data.reconciliation.onlineCollectionsPaise)}</span>
-              </div>
-              <div className="summary-row">
-                <span>Expenses</span>
-                <span>{formatINR(data.reconciliation.expensesPaise)}</span>
-              </div>
-              <div className="summary-row">
-                <span>
-                  Cash Taken Home
-                  <span className="summary-row-hint">Subtracted from closing cash</span>
-                </span>
-                {locked ? (
-                  <span>{formatINR(data.reconciliation.cashTakenPaise)}</span>
-                ) : (
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    value={cashTakenDraft}
-                    onChange={(e) => setCashTakenDraft(e.target.value)}
-                    onBlur={() => {
-                      void persistCashTaken().catch((err) => {
-                        setError(err instanceof Error ? err.message : 'Failed to save cash taken')
-                      })
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') e.currentTarget.blur()
-                    }}
-                    aria-label="Cash taken home"
-                  />
-                )}
-              </div>
-              <div className="summary-row total">
-                <span>Expected Closing Cash</span>
-                <span>{formatINRFloor(closingCashPaise)}</span>
-              </div>
-              {confirmClose ? (
-                <>
-
-                  <div className="summary-row">
-                    <span>
-                      Pending
-                      <span className="summary-row-hint">Amount left to take home</span>
-                    </span>
-                    <span className={closePendingPaise > 0 ? 'diff-pos' : ''}>
-                      {formatINRFloor(closePendingPaise)}
-                    </span>
-                  </div>
-                  <div className="summary-row">
-                    <span>
-                      Advance
-                      <span className="summary-row-hint">Cash taken more than expected</span>
-                    </span>
-                    <span className={closeAdvancePaise > 0 ? 'diff-neg' : ''}>
-                      {formatINRFloor(closeAdvancePaise)}
-                    </span>
-                  </div>
-                </>
-              ) : null}
-            </div>
+            <ReconciliationSummaryList
+              data={data}
+              liveFuelSalesPaise={fuelSalesPaise}
+              liveExpectedCashPaise={
+                data.cashSummary.totalCashPaise +
+                (fuelSalesPaise - data.kpis.totalFuelSalesPaise)
+              }
+              liveRemainingCashPaise={closingCashPaise}
+              cashTakenDraft={cashTakenDraft}
+              cashTakenPaise={Math.max(0, draftCashTakenPaise)}
+              onCashTakenChange={setCashTakenDraft}
+              onCashTakenSave={() => {
+                void persistCashTaken().catch((err) => {
+                  setError(err instanceof Error ? err.message : 'Failed to save cash taken')
+                })
+              }}
+              closed={locked}
+              pendingPaise={closePendingPaise}
+              advancePaise={closeAdvancePaise}
+              showPendingAdvance={confirmClose}
+            />
             {!confirmClose ? (
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setCloseOpen(false)}>
@@ -1172,6 +1152,120 @@ function ExpensesSection({
   )
 }
 
+function ReconciliationSummaryList({
+  data,
+  liveFuelSalesPaise,
+  liveExpectedCashPaise,
+  liveRemainingCashPaise,
+  cashTakenDraft,
+  cashTakenPaise,
+  onCashTakenChange,
+  onCashTakenSave,
+  closed,
+  pendingPaise,
+  advancePaise,
+  showPendingAdvance = true,
+}: {
+  data: DailyAccountPayload
+  liveFuelSalesPaise: number
+  liveExpectedCashPaise: number
+  liveRemainingCashPaise: number
+  cashTakenDraft: string
+  cashTakenPaise: number
+  onCashTakenChange: (value: string) => void
+  onCashTakenSave: () => void
+  closed: boolean
+  pendingPaise: number
+  advancePaise: number
+  showPendingAdvance?: boolean
+}) {
+  const online = onlinePaymentBreakdown(data)
+
+  return (
+    <div className="summary-list reconciliation-summary">
+      <div className="summary-row">
+        <span>Fuel Sale</span>
+        <span>{formatINRFloor(liveFuelSalesPaise)}</span>
+      </div>
+      <div className="summary-row summary-row-deduct">
+        <span>Credit</span>
+        <span>−{formatINR(data.reconciliation.creditSalesPaise)}</span>
+      </div>
+      <div className="summary-row summary-row-deduct">
+        <span>Debit</span>
+        <span>−{formatINR(data.kpis.totalDebitPaise)}</span>
+      </div>
+      <div className="summary-row summary-row-deduct">
+        <span>Online Payments</span>
+        <span>−{formatINR(online.total)}</span>
+      </div>
+      {ONLINE_BREAKDOWN_ORDER.map(({ type, label }) => {
+        const amount = online.amounts[type] || 0
+        if (amount <= 0) return null
+        return (
+          <div className="summary-row summary-row-deduct summary-row-nested" key={type}>
+            <span>{label}</span>
+            <span>−{formatINR(amount)}</span>
+          </div>
+        )
+      })}
+      <div className="summary-row summary-row-deduct">
+        <span>Expenses</span>
+        <span>−{formatINR(data.reconciliation.expensesPaise)}</span>
+      </div>
+      <div className="summary-row total">
+        <span>Expected Cash</span>
+        <span>{formatINRFloor(liveExpectedCashPaise)}</span>
+      </div>
+      <div className="summary-row summary-row-deduct">
+        <span>
+          Cash Taken
+          <span className="summary-row-hint">Subtracted from expected cash</span>
+        </span>
+        {closed ? (
+          <span>−{formatINR(cashTakenPaise)}</span>
+        ) : (
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            value={cashTakenDraft}
+            onChange={(e) => onCashTakenChange(e.target.value)}
+            onBlur={onCashTakenSave}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+            }}
+            aria-label="Cash taken"
+          />
+        )}
+      </div>
+      <div className="summary-row total">
+        <span>Remaining Cash</span>
+        <span>{formatINRFloor(liveRemainingCashPaise)}</span>
+      </div>
+      {showPendingAdvance ? (
+        <>
+          <div className={`summary-row ${diffLineClass(pendingPaise, 'pending')}`}>
+            <span>
+              Pending
+              <span className="summary-row-hint">Amount left to take home</span>
+            </span>
+            <span>{formatINRFloor(pendingPaise)}</span>
+          </div>
+          <div className={`summary-row ${diffLineClass(advancePaise, 'advance')}`}>
+            <span>
+              Advance
+              <span className="summary-row-hint">Cash taken more than expected</span>
+            </span>
+            <span>{formatINRFloor(advancePaise)}</span>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 function ReconciliationSection({
   data,
   liveFuelSalesPaise,
@@ -1224,74 +1318,22 @@ function ReconciliationSection({
           </span>
         )}
       </div>
-      <div className="two-col">
-        <div className="summary-list">
-          <div className="summary-row">
-            <span>Fuel Sales</span>
-            <span>{formatINRFloor(liveFuelSalesPaise)}</span>
-          </div>
-          <div className="summary-row">
-            <span>Credit Sales</span>
-            <span>{formatINR(data.reconciliation.creditSalesPaise)}</span>
-          </div>
-          <div className="summary-row">
-            <span>Online Collections</span>
-            <span>{formatINR(data.reconciliation.onlineCollectionsPaise)}</span>
-          </div>
-          <div className="summary-row">
-            <span>Expenses</span>
-            <span>{formatINR(data.reconciliation.expensesPaise)}</span>
-          </div>
-          <div className="summary-row">
-            <span>
-              Cash Taken Home
-              <span className="summary-row-hint">Subtracted from closing cash</span>
-            </span>
-            {closed ? (
-              <span>{formatINR(cashTakenPaise)}</span>
-            ) : (
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                value={cashTakenDraft}
-                onChange={(e) => onCashTakenChange(e.target.value)}
-                onBlur={onCashTakenSave}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.currentTarget.blur()
-                }}
-                aria-label="Cash taken home"
-              />
-            )}
-          </div>
-        </div>
-        <div className="summary-list">
-          <div className="summary-row total">
-            <span>Expected Closing Cash</span>
-            <span>{formatINRFloor(expectedClosing)}</span>
-          </div>
-
-          <div className="summary-row">
-            <span>
-              Pending
-              <span className="summary-row-hint">Amount left to take home</span>
-            </span>
-            <span className={pending > 0 ? 'diff-pos' : ''}>
-              {formatINRFloor(pending)}
-            </span>
-          </div>
-          <div className="summary-row">
-            <span>
-              Advance
-              <span className="summary-row-hint">Cash taken more than expected</span>
-            </span>
-            <span className={advance > 0 ? 'diff-neg' : ''}>
-              {formatINRFloor(advance)}
-            </span>
-          </div>
-        </div>
-      </div>
+      <ReconciliationSummaryList
+        data={data}
+        liveFuelSalesPaise={liveFuelSalesPaise}
+        liveExpectedCashPaise={
+          data.cashSummary.totalCashPaise +
+          (liveFuelSalesPaise - data.kpis.totalFuelSalesPaise)
+        }
+        liveRemainingCashPaise={expectedClosing}
+        cashTakenDraft={cashTakenDraft}
+        cashTakenPaise={cashTakenPaise}
+        onCashTakenChange={onCashTakenChange}
+        onCashTakenSave={onCashTakenSave}
+        closed={closed}
+        pendingPaise={pending}
+        advancePaise={advance}
+      />
     </section>
   )
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchProfitAnalytics, type ProfitAnalytics } from '../api/accounts'
 import Loader from '../components/Loader'
-import { formatDisplayDate, formatINR, formatINRFloor, formatRate } from '../lib/money'
+import { formatDisplayDate, formatINR, formatINRFloor, formatRate, diffLineClass, diffTextClass } from '../lib/money'
 
 function formatMonthLabel(month: string): string {
   const [year, m] = month.split('-').map(Number)
@@ -94,11 +94,18 @@ function AnalyticsPage() {
       ) : data ? (
         <>
           <div className="kpi-grid">
-            <div className="kpi-card">
+            <div className={`kpi-card ${diffLineClass(data.profitTillDatePaise)}`}>
               <p className="kpi-label">Profit till date</p>
               <p className="kpi-value">{formatINRFloor(data.profitTillDatePaise)}</p>
             </div>
-            <div className="kpi-card">
+            <div
+              className={`kpi-card ${diffLineClass(
+                from || to
+                  ? filteredTotals.net
+                  : data.monthly.find((row) => row.month === new Date().toISOString().slice(0, 7))
+                      ?.netProfitPaise ?? 0
+              )}`}
+            >
               <p className="kpi-label">
                 {from || to ? 'Filtered net profit' : 'This month net profit'}
               </p>
@@ -133,7 +140,20 @@ function AnalyticsPage() {
           {data.products.length ? (
             <section className="panel">
               <h2 className="panel-title">Current profit rates</h2>
-              <div className="table-wrap">
+              <div className="mobile-data-list">
+                {data.products.map((product) => (
+                  <article key={product.id} className="mobile-data-card">
+                    <div className="mobile-data-card-head">{product.name}</div>
+                    <div className="mobile-data-rows">
+                      <div className="mobile-data-row">
+                        <span>Profit (₹/L)</span>
+                        <span>{formatRate(product.profitPaise)}</span>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <div className="table-wrap desktop-table-wrap">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -156,7 +176,36 @@ function AnalyticsPage() {
 
           <section className="panel">
             <h2 className="panel-title">Monthly profit</h2>
-            <div className="table-wrap">
+            <div className="mobile-data-list">
+              {filteredMonthly.length === 0 ? (
+                <p className="muted">No profit data yet. Enter daily accounts to see monthly totals.</p>
+              ) : (
+                filteredMonthly.map((row) => (
+                  <article key={row.month} className="mobile-data-card">
+                    <div className="mobile-data-card-head">{formatMonthLabel(row.month)}</div>
+                    <div className="mobile-data-rows">
+                      <div className="mobile-data-row">
+                        <span>Gross profit</span>
+                        <span>{formatINRFloor(row.grossProfitPaise)}</span>
+                      </div>
+                      <div className="mobile-data-row">
+                        <span>Expenses</span>
+                        <span>{formatINR(row.expensesPaise)}</span>
+                      </div>
+                      <div className={`mobile-data-row ${diffLineClass(row.netProfitPaise)}`}>
+                        <span>Net profit</span>
+                        <span>{formatINRFloor(row.netProfitPaise)}</span>
+                      </div>
+                      <div className="mobile-data-row">
+                        <span>Days</span>
+                        <span>{row.days}</span>
+                      </div>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+            <div className="table-wrap table-wrap-scroll-hint desktop-table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -180,7 +229,9 @@ function AnalyticsPage() {
                         <td>{formatMonthLabel(row.month)}</td>
                         <td className="num">{formatINRFloor(row.grossProfitPaise)}</td>
                         <td className="num">{formatINR(row.expensesPaise)}</td>
-                        <td className="num">{formatINRFloor(row.netProfitPaise)}</td>
+                        <td className={`num ${diffTextClass(row.netProfitPaise)}`}>
+                          {formatINRFloor(row.netProfitPaise)}
+                        </td>
                         <td className="num">{row.days}</td>
                       </tr>
                     ))
@@ -192,7 +243,32 @@ function AnalyticsPage() {
 
           <section className="panel">
             <h2 className="panel-title">Daily profit</h2>
-            <div className="table-wrap">
+            <div className="mobile-data-list">
+              {data.daily.length === 0 ? (
+                <p className="muted">No daily accounts in this range.</p>
+              ) : (
+                data.daily.map((row) => (
+                  <article key={row.accountDate} className="mobile-data-card">
+                    <div className="mobile-data-card-head">{formatDisplayDate(row.accountDate)}</div>
+                    <div className="mobile-data-rows">
+                      <div className="mobile-data-row">
+                        <span>Gross profit</span>
+                        <span>{formatINRFloor(row.grossProfitPaise)}</span>
+                      </div>
+                      <div className="mobile-data-row">
+                        <span>Expenses</span>
+                        <span>{formatINR(row.expensesPaise)}</span>
+                      </div>
+                      <div className={`mobile-data-row ${diffLineClass(row.netProfitPaise)}`}>
+                        <span>Net profit</span>
+                        <span>{formatINRFloor(row.netProfitPaise)}</span>
+                      </div>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+            <div className="table-wrap table-wrap-scroll-hint desktop-table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -216,7 +292,7 @@ function AnalyticsPage() {
                         <td className="num">{formatINRFloor(row.grossProfitPaise)}</td>
                         <td className="num">{formatINR(row.expensesPaise)}</td>
                         <td
-                          className={`num ${row.netProfitPaise < 0 ? 'diff-neg' : row.netProfitPaise > 0 ? 'diff-pos' : ''}`}
+                          className={`num ${diffTextClass(row.netProfitPaise)}`}
                         >
                           {formatINRFloor(row.netProfitPaise)}
                         </td>
