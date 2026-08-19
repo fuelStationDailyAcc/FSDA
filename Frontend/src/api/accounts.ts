@@ -20,6 +20,7 @@ export type DailyAccountPayload = {
   cashSummary: {
     totalFuelSalePaise: number
     creditPaise: number
+    debitPaise: number
     onlinePaise: number
     otherNonCashPaise: number
     totalExpensePaise: number

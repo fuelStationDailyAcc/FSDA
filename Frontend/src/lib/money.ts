@@ -34,7 +34,7 @@ export function formatIndianNumber(n: number): string {
 }
 
 export function paiseToInput(paise: number | null | undefined): string {
-  if (paise === null || paise === undefined) return ""
+  if (paise === null || paise === undefined || Number(paise) === 0) return ""
   return (Number(paise) / 100).toFixed(2).replace(/\.00$/, "")
 }
 

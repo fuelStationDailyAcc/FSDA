@@ -129,8 +129,8 @@ export function buildDayReportCsv(
 
   lines.push(row('Daily Reconciliation'))
   lines.push(row('Fuel Sale', rupees(data.reconciliation.fuelSalesPaise)))
-  lines.push(row('Credit', rupees(data.reconciliation.creditSalesPaise)))
-  lines.push(row('Debit', rupees(data.kpis.totalDebitPaise)))
+  lines.push(row('Credit (+)', rupees(data.reconciliation.creditSalesPaise)))
+  lines.push(row('Debit (−)', rupees(data.kpis.totalDebitPaise)))
   lines.push(row('Online Payments', rupees(data.reconciliation.onlineCollectionsPaise)))
   const online = data.cashSummary.breakdown.reduce<Record<string, number>>((acc, row) => {
     if (!row.reducesCash || row.isCashTaken) return acc

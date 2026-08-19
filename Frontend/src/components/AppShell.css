@@ -840,6 +840,11 @@ body.nav-menu-open {
   font-weight: 600;
 }
 
+.summary-row-add {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .summary-row-nested {
   padding-left: 16px;
   font-size: 13px;

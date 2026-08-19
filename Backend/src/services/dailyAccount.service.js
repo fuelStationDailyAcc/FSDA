@@ -590,6 +590,7 @@ async function buildDayPayload(account, filters = {}) {
         totalFuelSalePaise,
         collections: collectionsForCash,
         totalExpensePaise,
+        totalDebitPaise,
         cashTakenPaise: account.cashTakenPaise,
         actualClosingCashPaise: account.actualClosingCashPaise,
     });
@@ -635,8 +636,11 @@ async function buildDayPayload(account, filters = {}) {
         const salesMap = new Map(priorSales.map((r) => [toId(r._id), Number(r.total || 0)]));
         const expMap = new Map(priorExpenses.map((r) => [toId(r._id), Number(r.total || 0)]));
         const creditMap = new Map();
+        const debitMap = new Map();
         for (const r of priorLedger) {
-            if (r._id.type === "CREDIT") creditMap.set(toId(r._id.dailyAccountId), Number(r.total || 0));
+            const id = toId(r._id.dailyAccountId);
+            if (r._id.type === "CREDIT") creditMap.set(id, Number(r.total || 0));
+            else if (r._id.type === "DEBIT") debitMap.set(id, Number(r.total || 0));
         }
         const collMap = new Map();
         for (const r of priorCollections) {
@@ -658,11 +662,13 @@ async function buildDayPayload(account, filters = {}) {
             const pFuel = salesMap.get(pid) || 0;
             const pExp = expMap.get(pid) || 0;
             const pCred = creditMap.get(pid) || 0;
+            const pDebit = debitMap.get(pid) || 0;
             const pColls = collectionsWithLedgerCredit(collMap.get(pid) || [], pCred);
             const pSummary = calculateCashSummary({
                 totalFuelSalePaise: pFuel,
                 collections: pColls,
                 totalExpensePaise: pExp,
+                totalDebitPaise: pDebit,
                 cashTakenPaise: pa.cashTakenPaise,
                 actualClosingCashPaise: pa.actualClosingCashPaise,
             });
@@ -807,6 +813,7 @@ export const DailyAccountService = {
                 totalFuelSalePaise,
                 collections,
                 totalExpensePaise,
+                totalDebitPaise,
                 cashTakenPaise: account.cashTakenPaise,
                 actualClosingCashPaise: account.actualClosingCashPaise,
             });

@@ -3,8 +3,8 @@
  * Adjustable via payment method flags rather than hardcoded Paytm/GPay columns.
  *
  * Formula (matches handwritten daily sheet):
- *   Total Cash   = Total Sale − Credit − Online − Other Non-Cash − Expenses
- *   Closing Cash = Total Cash − Cash Taken − Manual Online (and similar)
+ *   Total Cash   = Total Sale + Credit − Debit − Online − Other Non-Cash − Expenses
+ *   Closing Cash = Total Cash − Cash Taken
  */
 
 /**
@@ -12,12 +12,14 @@
  * @param {number} input.totalFuelSalePaise
  * @param {Array<{ amountPaise: number, reducesCash: boolean, isCashTaken: boolean, methodType: string }>} input.collections
  * @param {number} input.totalExpensePaise
+ * @param {number} [input.totalDebitPaise]
  * @param {number} input.cashTakenPaise
  * @param {number|null} input.actualClosingCashPaise
  */
 export function calculateCashSummary(input) {
     const totalFuelSalePaise = Number(input.totalFuelSalePaise || 0);
     const totalExpensePaise = Number(input.totalExpensePaise || 0);
+    const totalDebitPaise = Number(input.totalDebitPaise || 0);
     const cashTakenPaise = Number(input.cashTakenPaise || 0);
     const actualClosingCashPaise =
         input.actualClosingCashPaise === null || input.actualClosingCashPaise === undefined
@@ -60,8 +62,9 @@ export function calculateCashSummary(input) {
     const effectiveCashTaken = cashTakenPaise + cashTakenFromMethodsPaise;
 
     const totalCashPaise =
-        totalFuelSalePaise -
+        totalFuelSalePaise +
         creditPaise -
+        totalDebitPaise -
         onlinePaise -
         otherNonCashPaise -
         totalExpensePaise;
@@ -85,6 +88,7 @@ export function calculateCashSummary(input) {
     return {
         totalFuelSalePaise,
         creditPaise,
+        debitPaise: totalDebitPaise,
         onlinePaise,
         otherNonCashPaise,
         totalExpensePaise,

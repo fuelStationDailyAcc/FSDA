@@ -780,26 +780,6 @@ const FuelReadingsSection = forwardRef<
         <h2 className="panel-title">Fuel Sales / Meter Readings</h2>
         {!closed ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              aria-label="Product"
-            >
-              <option value="">Add product row…</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              disabled={!productId}
-              onClick={() => productId && void onAdd(productId)}
-            >
-              + Add Row
-            </button>
           </div>
         ) : null}
       </div>
@@ -1187,9 +1167,9 @@ function ReconciliationSummaryList({
         <span>Fuel Sale</span>
         <span>{formatINRFloor(liveFuelSalesPaise)}</span>
       </div>
-      <div className="summary-row summary-row-deduct">
+      <div className="summary-row summary-row-add">
         <span>Credit</span>
-        <span>−{formatINR(data.reconciliation.creditSalesPaise)}</span>
+        <span>+{formatINR(data.reconciliation.creditSalesPaise)}</span>
       </div>
       <div className="summary-row summary-row-deduct">
         <span>Debit</span>
