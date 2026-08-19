@@ -18,6 +18,7 @@ import {
     deleteTransaction,
     getDailyAccount,
     getLedgerTotals,
+    getProfitAnalytics,
     listDailyAccounts,
     listCustomers,
     listExpenseCategories,
@@ -44,6 +45,7 @@ const router = Router();
 router.use(verifyJWT);
 
 router.get("/history", requirePermission("accounts.read"), listDailyAccounts);
+router.get("/analytics/profit", requirePermission("accounts.read"), getProfitAnalytics);
 router.get("/daily", requirePermission("accounts.read"), getDailyAccount);
 router.patch("/daily/cash-taken", requirePermission("accounts.write"), updateCashTaken);
 router.post("/daily/collections", requirePermission("accounts.write"), addCollection);

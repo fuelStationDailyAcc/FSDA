@@ -26,6 +26,9 @@ function DashboardPage() {
               <Link to="/history" className="btn-secondary" style={{ textDecoration: 'none' }}>
                 View History
               </Link>
+              <Link to="/analytics" className="btn-secondary" style={{ textDecoration: 'none' }}>
+                Analytics
+              </Link>
             </>
           ) : null}
           {hasPermission(user, 'settings.read') ? (

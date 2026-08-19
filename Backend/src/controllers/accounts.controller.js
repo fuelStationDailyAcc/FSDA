@@ -30,6 +30,15 @@ export const listDailyAccounts = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, data, "Daily accounts fetched"));
 });
 
+export const getProfitAnalytics = asyncHandler(async (req, res) => {
+    const data = await DailyAccountService.getProfitAnalytics({
+        ownerId: requireStationOwnerId(req.user),
+        from: req.query.from,
+        to: req.query.to,
+    });
+    return res.status(200).json(new ApiResponse(200, data, "Profit analytics fetched"));
+});
+
 export const updateCashTaken = asyncHandler(async (req, res) => {
     const data = await DailyAccountService.updateCashTaken(
         req.body.date,
@@ -166,6 +175,7 @@ export const createProduct = asyncHandler(async (req, res) => {
         name: req.body.name,
         productType: req.body.productType,
         currentRatePaise: toPaise(req.body.currentRateRupees),
+        profitPaise: toPaise(req.body.profitRupees),
         sortOrder: req.body.sortOrder,
     });
     return res.status(201).json(new ApiResponse(201, data, "Product created"));
@@ -179,6 +189,8 @@ export const updateProduct = asyncHandler(async (req, res) => {
             req.body.currentRateRupees === undefined
                 ? undefined
                 : toPaise(req.body.currentRateRupees),
+        profitPaise:
+            req.body.profitRupees === undefined ? undefined : toPaise(req.body.profitRupees),
         isActive: req.body.isActive,
         sortOrder: req.body.sortOrder,
     });

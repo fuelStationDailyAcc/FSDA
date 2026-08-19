@@ -6,6 +6,7 @@ import AppShell from './components/AppShell'
 import AuthPage from './pages/AuthPage'
 import DashboardPage from './pages/DashboardPage'
 import AccountHistoryPage from './pages/AccountHistoryPage'
+import AnalyticsPage from './pages/AnalyticsPage'
 import DailyAccountsPage from './pages/DailyAccountsPage'
 import HeroPage from './pages/HeroPage'
 import PartiesPage from './pages/PartiesPage'
@@ -42,6 +43,14 @@ function AppRouter() {
               element={
                 <PermissionRoute permission="accounts.read">
                   <AccountHistoryPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/analytics"
+              element={
+                <PermissionRoute permission="accounts.read">
+                  <AnalyticsPage />
                 </PermissionRoute>
               }
             />

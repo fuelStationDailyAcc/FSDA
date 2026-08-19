@@ -34,6 +34,7 @@ function SettingsPage() {
   const [productName, setProductName] = useState('')
   const [productType, setProductType] = useState('MS')
   const [productRate, setProductRate] = useState('')
+  const [productProfit, setProductProfit] = useState('')
 
   const [methodName, setMethodName] = useState('')
 
@@ -58,9 +59,11 @@ function SettingsPage() {
         name: productName,
         productType,
         currentRateRupees: productRate || 0,
+        profitRupees: productProfit || 0,
       })
       setProductName('')
       setProductRate('')
+      setProductProfit('')
       setMessage('Product added')
       await reload()
     } catch (err) {
@@ -209,6 +212,16 @@ function SettingsPage() {
               onChange={(e) => setProductRate(e.target.value)}
             />
           </label>
+          <label className="field">
+            Profit (₹/L)
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={productProfit}
+              onChange={(e) => setProductProfit(e.target.value)}
+            />
+          </label>
           <div style={{ display: 'flex', alignItems: 'end' }}>
             <button type="submit" className="btn btn-sm">
               Add Product
@@ -223,6 +236,7 @@ function SettingsPage() {
                 <th>Name</th>
                 <th>Type</th>
                 <th className="num">Rate</th>
+                <th className="num">Profit</th>
                 <th>Status</th>
                 {canWrite ? <th>Action</th> : null}
               </tr>
@@ -233,6 +247,7 @@ function SettingsPage() {
                   <td>{p.name}</td>
                   <td>{p.productType}</td>
                   <td className="num">{formatRate(p.currentRatePaise)}</td>
+                  <td className="num">{formatRate(p.profitPaise)}</td>
                   <td className={p.isActive ? undefined : 'muted'}>
                     {p.isActive ? 'Active' : 'Hidden'}
                   </td>
@@ -258,6 +273,27 @@ function SettingsPage() {
                       }}
                     >
                       Edit Rate
+                    </button>{' '}
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      onClick={async () => {
+                        const profit = window.prompt(
+                          'Profit per litre (₹)',
+                          paiseToInput(p.profitPaise)
+                        )
+                        if (profit === null) return
+                        setError('')
+                        try {
+                          await updateProduct(p.id, { profitRupees: profit })
+                          setMessage('Product profit updated')
+                          await reload()
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Failed to update profit')
+                        }
+                      }}
+                    >
+                      Edit Profit
                     </button>{' '}
                     {p.isActive ? (
                     <button

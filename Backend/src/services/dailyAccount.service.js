@@ -13,6 +13,7 @@ import { writeAudit } from "../services/audit.js";
 import { calculateCashSummary, calculateLedgerRunningBalance } from "../services/cashCalculation.js";
 import {
     calcFuelSalePaise,
+    calcFuelProfitPaise,
     calcLitres,
     calcNetLitres,
     parseLitres,
@@ -1345,5 +1346,150 @@ export const DailyAccountService = {
 
         const refreshed = await DailyAccount.findById(account.id).lean();
         return buildDayPayload(mapDaily(refreshed));
+    },
+
+    async getProfitAnalytics({ ownerId, from, to } = {}) {
+        if (!isValidObjectId(ownerId)) {
+            return {
+                profitTillDatePaise: 0,
+                monthly: [],
+                daily: [],
+                products: [],
+            };
+        }
+
+        const allAccounts = await DailyAccount.find({ ownerId }).sort({ accountDate: 1 }).lean();
+        if (!allAccounts.length) {
+            return {
+                profitTillDatePaise: 0,
+                monthly: [],
+                daily: [],
+                products: [],
+            };
+        }
+
+        const accountById = new Map();
+        const ids = allAccounts.map((row) => {
+            const account = mapDaily(row);
+            accountById.set(account.id, account);
+            return row._id;
+        });
+
+        const products = await FuelProductModel.find({ ownerId }).sort({ sortOrder: 1, name: 1 }).lean();
+        const productMap = new Map(
+            products.map((row) => [
+                toId(row._id),
+                {
+                    id: toId(row._id),
+                    name: row.name,
+                    productType: row.productType,
+                    profitPaise: Number(row.profitPaise ?? 0),
+                },
+            ])
+        );
+
+        const [litreRows, expenseRows] = await Promise.all([
+            FuelMeterReading.aggregate([
+                { $match: { dailyAccountId: { $in: ids } } },
+                {
+                    $group: {
+                        _id: { dailyAccountId: "$dailyAccountId", productId: "$productId" },
+                        netLitres: { $sum: "$netLitres" },
+                    },
+                },
+            ]),
+            Expense.aggregate([
+                { $match: { dailyAccountId: { $in: ids } } },
+                {
+                    $group: {
+                        _id: "$dailyAccountId",
+                        totalExpensesPaise: { $sum: "$amountPaise" },
+                    },
+                },
+            ]),
+        ]);
+
+        const litresByDayProduct = new Map();
+        for (const row of litreRows) {
+            const dayId = toId(row._id.dailyAccountId);
+            const productId = toId(row._id.productId);
+            const key = `${dayId}:${productId}`;
+            litresByDayProduct.set(key, Number(row.netLitres || 0));
+        }
+
+        const expensesById = new Map(
+            expenseRows.map((row) => [toId(row._id), Number(row.totalExpensesPaise || 0)])
+        );
+
+        function buildDayProfit(account) {
+            const dayId = account.id;
+            const expensesPaise = expensesById.get(dayId) || 0;
+            const productRows = [];
+
+            for (const [productId, product] of productMap) {
+                const netLitres = litresByDayProduct.get(`${dayId}:${productId}`) || 0;
+                if (!netLitres) continue;
+                const grossProfitPaise = calcFuelProfitPaise(netLitres, product.profitPaise);
+                productRows.push({
+                    productId: product.id,
+                    productName: product.name,
+                    netLitres,
+                    profitPaise: product.profitPaise,
+                    grossProfitPaise,
+                });
+            }
+
+            const grossProfitPaise = productRows.reduce((sum, row) => sum + row.grossProfitPaise, 0);
+            const netProfitPaise = grossProfitPaise - expensesPaise;
+
+            return {
+                accountDate: account.accountDate,
+                grossProfitPaise,
+                expensesPaise,
+                netProfitPaise,
+                products: productRows,
+            };
+        }
+
+        const allDaily = allAccounts.map((row) => buildDayProfit(mapDaily(row)));
+        const profitTillDatePaise = allDaily.reduce((sum, row) => sum + row.netProfitPaise, 0);
+
+        const monthlyMap = new Map();
+        for (const row of allDaily) {
+            const month = row.accountDate.slice(0, 7);
+            const existing = monthlyMap.get(month) || {
+                month,
+                grossProfitPaise: 0,
+                expensesPaise: 0,
+                netProfitPaise: 0,
+                days: 0,
+            };
+            existing.grossProfitPaise += row.grossProfitPaise;
+            existing.expensesPaise += row.expensesPaise;
+            existing.netProfitPaise += row.netProfitPaise;
+            existing.days += 1;
+            monthlyMap.set(month, existing);
+        }
+
+        const monthly = [...monthlyMap.values()].sort((a, b) => b.month.localeCompare(a.month));
+
+        let daily = allDaily;
+        if (from || to) {
+            const normFrom = from ? normalizeDate(from) : null;
+            const normTo = to ? normalizeDate(to) : null;
+            daily = daily.filter((row) => {
+                if (normFrom && row.accountDate < normFrom) return false;
+                if (normTo && row.accountDate > normTo) return false;
+                return true;
+            });
+        }
+        daily = daily.sort((a, b) => b.accountDate.localeCompare(a.accountDate));
+
+        return {
+            profitTillDatePaise,
+            monthly,
+            daily,
+            products: [...productMap.values()],
+        };
     },
 };

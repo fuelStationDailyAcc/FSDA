@@ -67,6 +67,10 @@ export function calcFuelSalePaise(netLitres: number, ratePaise: number): number 
   return Number(r >= 500n ? q + 1n : q)
 }
 
+export function calcFuelProfitPaise(netLitres: number, profitPaise: number): number {
+  return calcFuelSalePaise(netLitres, profitPaise)
+}
+
 export function formatLitres(n: number): string {
   if (!Number.isFinite(n)) return "—"
   return String(Math.round(n * 1000) / 1000)

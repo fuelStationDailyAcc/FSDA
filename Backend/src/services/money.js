@@ -37,6 +37,11 @@ export function calcFuelSalePaise(netLitres, ratePaise) {
     return Number(r >= 500n ? q + 1n : q);
 }
 
+/** Fuel profit in paise: netLitres × profitPaise, same rounding as sale calc. */
+export function calcFuelProfitPaise(netLitres, profitPaise) {
+    return calcFuelSalePaise(netLitres, profitPaise);
+}
+
 export function calcLitres(newReading, oldReading) {
     const litres = parseLitres(newReading) - parseLitres(oldReading);
     return Math.round(litres * 1000) / 1000;

@@ -124,6 +124,7 @@ export type FuelProduct = {
   name: string
   productType: string
   currentRatePaise: number
+  profitPaise: number
   isActive: boolean
 }
 
@@ -175,6 +176,46 @@ export type DailyAccountSummary = {
   differencePaise: number | null
   pendingPaise: number | null
   advancePaise: number | null
+}
+
+export type ProfitProductRow = {
+  productId: string
+  productName: string
+  netLitres: number
+  profitPaise: number
+  grossProfitPaise: number
+}
+
+export type DailyProfitRow = {
+  accountDate: string
+  grossProfitPaise: number
+  expensesPaise: number
+  netProfitPaise: number
+  products: ProfitProductRow[]
+}
+
+export type MonthlyProfitRow = {
+  month: string
+  grossProfitPaise: number
+  expensesPaise: number
+  netProfitPaise: number
+  days: number
+}
+
+export type ProfitAnalytics = {
+  profitTillDatePaise: number
+  monthly: MonthlyProfitRow[]
+  daily: DailyProfitRow[]
+  products: Array<{ id: string; name: string; productType: string; profitPaise: number }>
+}
+
+export async function fetchProfitAnalytics(filters: { from?: string; to?: string } = {}) {
+  return apiRequest<ProfitAnalytics>(
+    `/accounts/analytics/profit${qs({
+      from: filters.from,
+      to: filters.to,
+    })}`
+  )
 }
 
 export async function fetchDailyAccount(

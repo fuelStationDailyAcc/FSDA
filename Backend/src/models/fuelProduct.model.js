@@ -7,6 +7,7 @@ const fuelProductSchema = new mongoose.Schema(
         name: { type: String, required: true, trim: true },
         productType: { type: String, default: "Other" },
         currentRatePaise: { type: Number, default: 0 },
+        profitPaise: { type: Number, default: 0 },
         isActive: { type: Boolean, default: true },
         sortOrder: { type: Number, default: 0 },
     },
@@ -24,6 +25,7 @@ function mapProduct(doc) {
         name: row.name,
         productType: row.productType,
         currentRatePaise: Number(row.currentRatePaise),
+        profitPaise: Number(row.profitPaise ?? 0),
         isActive: row.isActive,
         sortOrder: row.sortOrder,
         createdAt: row.createdAt,
@@ -46,24 +48,26 @@ export const FuelProduct = {
         return mapProduct(doc);
     },
 
-    async create(ownerId, { name, productType, currentRatePaise, sortOrder = 0 }) {
+    async create(ownerId, { name, productType, currentRatePaise, profitPaise, sortOrder = 0 }) {
         if (!isValidObjectId(ownerId)) return null;
         const doc = await FuelProductModel.create({
             ownerId,
             name: name.trim(),
             productType: productType || "Other",
             currentRatePaise: Number(currentRatePaise) || 0,
+            profitPaise: Number(profitPaise) || 0,
             sortOrder,
         });
         return mapProduct(doc);
     },
 
-    async update(id, ownerId, { name, productType, currentRatePaise, isActive, sortOrder }) {
+    async update(id, ownerId, { name, productType, currentRatePaise, profitPaise, isActive, sortOrder }) {
         if (!isValidObjectId(id) || !isValidObjectId(ownerId)) return null;
         const $set = {};
         assignIfPresent($set, "name", name, (value) => value.trim());
         assignIfPresent($set, "productType", productType);
         assignIfPresent($set, "currentRatePaise", currentRatePaise, Number);
+        assignIfPresent($set, "profitPaise", profitPaise, Number);
         assignIfPresent($set, "isActive", isActive);
         assignIfPresent($set, "sortOrder", sortOrder);
         const doc = await FuelProductModel.findOneAndUpdate(

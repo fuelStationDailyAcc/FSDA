@@ -36,6 +36,7 @@ function AppShell() {
             <>
               <NavLink to="/accounts">Daily Accounts</NavLink>
               <NavLink to="/history">History</NavLink>
+              <NavLink to="/analytics">Analytics</NavLink>
             </>
           ) : null}
           {hasPermission(user, 'ledger.read') ? <NavLink to="/ledger">Ledger</NavLink> : null}
