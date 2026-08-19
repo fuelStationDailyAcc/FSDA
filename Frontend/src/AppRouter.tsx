@@ -12,6 +12,7 @@ import HeroPage from './pages/HeroPage'
 import PartiesPage from './pages/PartiesPage'
 import SettingsPage from './pages/SettingsPage'
 import StaffPage from './pages/StaffPage'
+import SalariesPage from './pages/SalariesPage'
 import './hooks/usePwaInstall'
 
 function AppRouter() {
@@ -76,6 +77,14 @@ function AppRouter() {
               element={
                 <PermissionRoute ownerOnly>
                   <StaffPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="/salaries"
+              element={
+                <PermissionRoute ownerOnly>
+                  <SalariesPage />
                 </PermissionRoute>
               }
             />

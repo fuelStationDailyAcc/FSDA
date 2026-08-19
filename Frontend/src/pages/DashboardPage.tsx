@@ -37,9 +37,14 @@ function DashboardPage() {
             </Link>
           ) : null}
           {owner && user?.role !== 'staff' ? (
-            <Link to="/staff" className="btn-secondary" style={{ textDecoration: 'none' }}>
-              Staff
-            </Link>
+            <>
+              <Link to="/staff" className="btn-secondary" style={{ textDecoration: 'none' }}>
+                Staff
+              </Link>
+              <Link to="/salaries" className="btn-secondary" style={{ textDecoration: 'none' }}>
+                Salaries
+              </Link>
+            </>
           ) : null}
         </div>
       </section>
