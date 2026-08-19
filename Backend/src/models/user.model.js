@@ -12,6 +12,7 @@ import { AuditLog } from "./auditLog.model.js";
 import { ExpenseCategoryModel, TransactionCategoryModel } from "./catalog.model.js";
 import { FuelProductModel } from "./fuelProduct.model.js";
 import { PaymentMethodModel } from "./paymentMethod.model.js";
+import { SalaryModel } from "./salary.model.js";
 import { CustomerModel, VendorModel } from "./party.model.js";
 import { isValidObjectId, leanDoc, toId } from "../db/helpers.js";
 import {
@@ -238,6 +239,7 @@ export const User = {
             await PaymentMethodModel.deleteMany({ ownerId: id });
             await ExpenseCategoryModel.deleteMany({ ownerId: id });
             await TransactionCategoryModel.deleteMany({ ownerId: id });
+            await SalaryModel.deleteMany({ ownerId: id });
             await UserModel.deleteMany({ ownerId: id });
         } else {
             await DailyAccount.updateMany({ createdBy: id }, { $set: { createdBy: null } });

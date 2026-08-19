@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import userRouter from "./routes/user.routes.js";
 import accountsRouter from "./routes/accounts.routes.js";
 import staffRouter from "./routes/staff.routes.js";
+import salaryRouter from "./routes/salary.routes.js";
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use(cookieParser());
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/accounts", accountsRouter);
 app.use("/api/v1/staff", staffRouter);
+app.use("/api/v1/salaries", salaryRouter);
 
 app.use((err, req, res, next) => {
     if (err.code === 11000) {
