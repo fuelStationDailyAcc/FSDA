@@ -40,6 +40,7 @@ import {
 import { Modal } from '../components/Modal'
 import Loader from '../components/Loader'
 import { downloadDayReport } from '../lib/dayReport'
+import { reconciliationDeductions } from '../lib/reconciliationBreakdown'
 import {
   calcFuelSalePaise,
   calcLitres,
@@ -90,36 +91,6 @@ function isCashMethod(row: { methodType?: string; code?: string }) {
 }
 
 const METHOD_TYPE_ORDER = ['card', 'online', 'bank']
-
-const ONLINE_BREAKDOWN_ORDER = [
-  { type: 'card', label: 'Card' },
-  { type: 'online', label: 'Online Payment' },
-  { type: 'bank', label: 'Bank Payment' },
-] as const
-
-function onlinePaymentBreakdown(data: DailyAccountPayload) {
-  const amounts: Record<string, number> = {}
-  for (const row of data.cashSummary.breakdown) {
-    if (!row.reducesCash || row.isCashTaken) continue
-    const type = String(row.methodType || '').toLowerCase()
-    if (type === 'credit' || type === 'cash') continue
-    if (type === 'upi') {
-      amounts.online = (amounts.online || 0) + row.amountPaise
-      continue
-    }
-    if (METHOD_TYPE_ORDER.includes(type) || type) {
-      amounts[type] = (amounts[type] || 0) + row.amountPaise
-    }
-  }
-  const typedTotal = ONLINE_BREAKDOWN_ORDER.reduce(
-    (sum, { type }) => sum + (amounts[type] || 0),
-    0
-  )
-  return {
-    amounts,
-    total: typedTotal + (data.cashSummary.otherNonCashPaise || 0),
-  }
-}
 
 function collectionNoteLabel(method: PaymentMethod) {
   const type = String(method.methodType || '').toLowerCase()
@@ -173,9 +144,13 @@ function DailyAccountsPage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const dateParam = searchParams.get('date')
-  const date = isISODate(dateParam) ? dateParam! : todayISO()
+  const isDayOpen = isISODate(dateParam)
+  const date = isDayOpen ? dateParam! : ''
+  const [pickerDate, setPickerDate] = useState(() =>
+    isISODate(dateParam) ? dateParam! : todayISO()
+  )
   const [data, setData] = useState<DailyAccountPayload | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [products, setProducts] = useState<FuelProduct[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
@@ -234,8 +209,19 @@ function DailyAccountsPage() {
   }, [])
 
   useEffect(() => {
-    void load(date)
-  }, [date, load])
+    if (!isDayOpen) {
+      setData(null)
+      setLiveFuelSalesPaise(null)
+      setReadingsDirty(false)
+      setLoading(false)
+      return
+    }
+    void load(dateParam!)
+  }, [dateParam, isDayOpen, load])
+
+  useEffect(() => {
+    if (isDayOpen && dateParam) setPickerDate(dateParam)
+  }, [isDayOpen, dateParam])
 
   useEffect(() => {
     void Promise.all([
@@ -249,7 +235,7 @@ function DailyAccountsPage() {
       setCustomers(c.data)
       setVendors(v.data)
     })
-  }, [date])
+  }, [])
 
   function applyDay(next: DailyAccountPayload) {
     setData(next)
@@ -276,15 +262,29 @@ function DailyAccountsPage() {
     return res.data
   }
 
+  function openSelectedDay(target?: string) {
+    const next = target || pickerDate
+    if (!isISODate(next)) return
+    if (
+      isDayOpen &&
+      dirty &&
+      !window.confirm('You have unsaved changes. Discard them and change the date?')
+    ) {
+      return
+    }
+    setSearchParams({ date: next }, { replace: true })
+  }
+
   function requestDateChange(next: string) {
-    if (next === date) return
+    if (!isISODate(next)) return
+    if (next === dateParam) return
     if (
       dirty &&
       !window.confirm('You have unsaved changes. Discard them and change the date?')
     ) {
       return
     }
-    setSearchParams(next === todayISO() ? {} : { date: next }, { replace: true })
+    setSearchParams({ date: next }, { replace: true })
   }
 
   async function handleSave() {
@@ -324,122 +324,171 @@ function DailyAccountsPage() {
     <div className={loading ? 'page-loading' : undefined}>
       {loading && data ? <Loader overlay label="Updating…" /> : null}
       <section className="panel">
-        <div className="toolbar">
-          <div className="toolbar-left">
+        {!isDayOpen ? (
+          <>
             <h1 className="page-title">Daily Accounts</h1>
-            <button
-              type="button"
-              className="btn-ghost btn-sm"
-              onClick={() => requestDateChange(shiftDate(date, -1))}
-              aria-label="Previous day"
-            >
-              ←
-            </button>
-            <label className="field" style={{ minWidth: 150 }}>
-              Date
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => requestDateChange(e.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className="btn-ghost btn-sm"
-              onClick={() => requestDateChange(shiftDate(date, 1))}
-              aria-label="Next day"
-            >
-              →
-            </button>
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              onClick={() => requestDateChange(todayISO())}
-            >
-              Today
-            </button>
-            <span className={`status-pill ${closed ? 'closed' : ''}`}>
-              <span className="status-dot" />
-              {closed ? 'Day Closed' : 'Open'}
-            </span>
-          </div>
-          <div className="toolbar-right">
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={!data}
-              onClick={() => window.print()}
-            >
-              Print
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={!data}
-              onClick={() => data && downloadDayReport(data, user?.stationName)}
-            >
-              Download
-            </button>
-            {!locked ? (
+            <p className="muted" style={{ margin: '8px 0 0' }}>
+              Choose an accounting date and open the sheet. A day is not created until you open it.
+            </p>
+            <div className="filters" style={{ marginTop: 16 }}>
               <button
                 type="button"
-                className="btn-danger btn-sm"
-                disabled={busy}
-                onClick={() => setResetOpen(true)}
-                title="Reset all entries for this day to zero"
+                className="btn-ghost btn-sm"
+                onClick={() => setPickerDate(shiftDate(pickerDate, -1))}
+                aria-label="Previous day"
               >
-                ↺ Reset Day
+                ←
               </button>
-            ) : null}
-            {!locked ? (
+              <label className="field" style={{ minWidth: 150 }}>
+                Date
+                <input
+                  type="date"
+                  value={pickerDate}
+                  onChange={(e) => setPickerDate(e.target.value)}
+                />
+              </label>
               <button
                 type="button"
-                className="btn"
-                disabled={busy || !dirty}
-                onClick={() => void handleSave()}
+                className="btn-ghost btn-sm"
+                onClick={() => setPickerDate(shiftDate(pickerDate, 1))}
+                aria-label="Next day"
               >
-                {busy ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+                →
               </button>
-            ) : null}
-            {closed ? (
-              owner ? (
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => setPickerDate(todayISO())}
+              >
+                Today
+              </button>
+              <div style={{ display: 'flex', alignItems: 'end' }}>
+                <button type="button" className="btn" onClick={() => openSelectedDay()}>
+                  Open Day
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="toolbar">
+            <div className="toolbar-left">
+              <h1 className="page-title">Daily Accounts</h1>
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() => requestDateChange(shiftDate(date, -1))}
+                aria-label="Previous day"
+              >
+                ←
+              </button>
+              <label className="field" style={{ minWidth: 150 }}>
+                Date
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => requestDateChange(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() => requestDateChange(shiftDate(date, 1))}
+                aria-label="Next day"
+              >
+                →
+              </button>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => requestDateChange(todayISO())}
+              >
+                Today
+              </button>
+              <span className={`status-pill ${closed ? 'closed' : ''}`}>
+                <span className="status-dot" />
+                {closed ? 'Day Closed' : 'Open'}
+              </span>
+            </div>
+            <div className="toolbar-right">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!data}
+                onClick={() => window.print()}
+              >
+                Print
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={!data}
+                onClick={() => data && downloadDayReport(data, user?.stationName)}
+              >
+                Download
+              </button>
+              {!locked ? (
                 <button
                   type="button"
-                  className="btn-secondary"
-                  onClick={async () => {
-                    try {
-                      const res = await reopenDay(date)
-                      applyDay(res.data)
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : 'Cannot reopen')
-                    }
-                  }}
+                  className="btn-danger btn-sm"
+                  disabled={busy}
+                  onClick={() => setResetOpen(true)}
+                  title="Reset all entries for this day to zero"
                 >
-                  Reopen Day
+                  ↺ Reset Day
                 </button>
-              ) : null
-            ) : canWrite ? (
-              <button type="button" className="btn-secondary" onClick={openCloseModal}>
-                Close Day
-              </button>
-            ) : null}
+              ) : null}
+              {!locked ? (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || !dirty}
+                  onClick={() => void handleSave()}
+                >
+                  {busy ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+                </button>
+              ) : null}
+              {closed ? (
+                owner ? (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={async () => {
+                      try {
+                        const res = await reopenDay(date)
+                        applyDay(res.data)
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Cannot reopen')
+                      }
+                    }}
+                  >
+                    Reopen Day
+                  </button>
+                ) : null
+              ) : canWrite ? (
+                <button type="button" className="btn-secondary" onClick={openCloseModal}>
+                  Close Day
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
-        <p className="muted" style={{ margin: '8px 0 0' }}>
-          Accounting date: <strong>{formatDisplayDate(date)}</strong>
-          {user?.stationName ? ` · ${user.stationName}` : null}
-          {user?.role ? ` · Role: ${user.role}` : null}
-          {!canWrite ? (
-            <span className="read-only-note no-print"> · View only</span>
-          ) : !closed ? (
-            <span className="no-print">
-              {' '}
-              
-            </span>
-          ) : null}
-        </p>
+        )}
+        {isDayOpen ? (
+          <p className="muted" style={{ margin: '8px 0 0' }}>
+            Accounting date: <strong>{formatDisplayDate(date)}</strong>
+            {user?.stationName ? ` · ${user.stationName}` : null}
+            {user?.role ? ` · Role: ${user.role}` : null}
+            {!canWrite ? (
+              <span className="read-only-note no-print"> · View only</span>
+            ) : !closed ? (
+              <span className="no-print">
+                {' '}
+                
+              </span>
+            ) : null}
+          </p>
+        ) : null}
         {error ? <p className="error-text">{error}</p> : null}
-        {loading && !data ? <Loader fullPage label="Loading daily account…" /> : null}
+        {loading && isDayOpen && !data ? <Loader fullPage label="Loading daily account…" /> : null}
       </section>
 
       {data ? (
@@ -449,7 +498,7 @@ function DailyAccountsPage() {
             <Kpi label="Total Credit" value={data.kpis.totalCreditPaise} />
             <Kpi label="Total Debit" value={data.kpis.totalDebitPaise} />
             <Kpi label="Total Expenses" value={data.kpis.totalExpensesPaise} />
-            <Kpi label="Online Collections" value={data.kpis.onlineCollectionsPaise} />
+            <Kpi label="Online Collections" value={reconciliationDeductions(data).onlinePaise} />
             <Kpi label="Closing Cash" value={closingCashPaise} whole />
           </div>
 
@@ -1159,7 +1208,7 @@ function ReconciliationSummaryList({
   advancePaise: number
   showPendingAdvance?: boolean
 }) {
-  const online = onlinePaymentBreakdown(data)
+  const deductions = reconciliationDeductions(data)
 
   return (
     <div className="summary-list reconciliation-summary">
@@ -1177,18 +1226,20 @@ function ReconciliationSummaryList({
       </div>
       <div className="summary-row summary-row-deduct">
         <span>Online Payments</span>
-        <span>−{formatINR(online.total)}</span>
+        <span>−{formatINR(deductions.onlinePaise)}</span>
       </div>
-      {ONLINE_BREAKDOWN_ORDER.map(({ type, label }) => {
-        const amount = online.amounts[type] || 0
-        if (amount <= 0) return null
-        return (
-          <div className="summary-row summary-row-deduct summary-row-nested" key={type}>
-            <span>{label}</span>
-            <span>−{formatINR(amount)}</span>
-          </div>
-        )
-      })}
+      {deductions.cardPaise > 0 ? (
+        <div className="summary-row summary-row-deduct">
+          <span>Card</span>
+          <span>−{formatINR(deductions.cardPaise)}</span>
+        </div>
+      ) : null}
+      {deductions.bankPaise > 0 ? (
+        <div className="summary-row summary-row-deduct">
+          <span>Bank Payment</span>
+          <span>−{formatINR(deductions.bankPaise)}</span>
+        </div>
+      ) : null}
       <div className="summary-row summary-row-deduct">
         <span>Expenses</span>
         <span>−{formatINR(data.reconciliation.expensesPaise)}</span>

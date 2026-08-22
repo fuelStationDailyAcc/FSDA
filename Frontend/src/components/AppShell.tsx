@@ -96,11 +96,6 @@ function AppShell() {
               Ledger
             </NavLink>
           ) : null}
-          {hasPermission(user, 'settings.read') ? (
-            <NavLink to="/settings" onClick={() => setNavOpen(false)}>
-              Settings
-            </NavLink>
-          ) : null}
           {owner && user?.role !== 'staff' ? (
             <>
               <NavLink to="/staff" onClick={() => setNavOpen(false)}>
@@ -110,6 +105,11 @@ function AppShell() {
                 Salaries
               </NavLink>
             </>
+          ) : null}
+          {hasPermission(user, 'settings.read') ? (
+            <NavLink to="/settings" onClick={() => setNavOpen(false)}>
+              Settings
+            </NavLink>
           ) : null}
           <div className="app-nav-user-mobile">
             <span className="app-nav-user-label">Signed in as</span>

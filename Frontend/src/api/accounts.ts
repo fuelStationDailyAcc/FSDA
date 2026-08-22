@@ -336,6 +336,12 @@ export async function resetDay(date: string) {
   })
 }
 
+export async function deleteDay(date: string) {
+  return apiRequest<{ accountDate: string }>(`/accounts/daily${qs({ date })}`, {
+    method: "DELETE",
+  })
+}
+
 export async function fetchProducts(activeOnly = false) {
   return apiRequest<FuelProduct[]>(
     `/accounts/products${qs({ activeOnly: activeOnly ? "true" : undefined })}`

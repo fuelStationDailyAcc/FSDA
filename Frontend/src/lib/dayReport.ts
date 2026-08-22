@@ -1,5 +1,6 @@
 import type { DailyAccountPayload } from '../api/accounts'
 import { formatDisplayDate } from './money'
+import { reconciliationDeductions } from './reconciliationBreakdown'
 
 function csvCell(value: string | number | null | undefined): string {
   const s = value == null ? '' : String(value)
@@ -35,7 +36,8 @@ export function buildDayReportCsv(
   lines.push(row('Total Credit', rupees(data.kpis.totalCreditPaise)))
   lines.push(row('Total Debit', rupees(data.kpis.totalDebitPaise)))
   lines.push(row('Total Expenses', rupees(data.kpis.totalExpensesPaise)))
-  lines.push(row('Online Collections', rupees(data.kpis.onlineCollectionsPaise)))
+  const deductions = reconciliationDeductions(data)
+  lines.push(row('Online Collections', rupees(deductions.onlinePaise)))
   lines.push(row('Closing Cash', rupees(data.kpis.closingCashPaise)))
   blank()
 
@@ -131,23 +133,9 @@ export function buildDayReportCsv(
   lines.push(row('Fuel Sale', rupees(data.reconciliation.fuelSalesPaise)))
   lines.push(row('Credit (+)', rupees(data.reconciliation.creditSalesPaise)))
   lines.push(row('Debit (−)', rupees(data.kpis.totalDebitPaise)))
-  lines.push(row('Online Payments', rupees(data.reconciliation.onlineCollectionsPaise)))
-  const online = data.cashSummary.breakdown.reduce<Record<string, number>>((acc, row) => {
-    if (!row.reducesCash || row.isCashTaken) return acc
-    const type = String(row.methodType || '').toLowerCase()
-    if (type === 'credit' || type === 'cash') return acc
-    if (type === 'upi') {
-      acc.online = (acc.online || 0) + row.amountPaise
-      return acc
-    }
-    if (['card', 'online', 'bank'].includes(type)) {
-      acc[type] = (acc[type] || 0) + row.amountPaise
-    }
-    return acc
-  }, {})
-  if (online.card) lines.push(row('  Card', rupees(online.card)))
-  if (online.online) lines.push(row('  Online Payment', rupees(online.online)))
-  if (online.bank) lines.push(row('  Bank Payment', rupees(online.bank)))
+  lines.push(row('Online Payments', rupees(deductions.onlinePaise)))
+  if (deductions.cardPaise) lines.push(row('Card', rupees(deductions.cardPaise)))
+  if (deductions.bankPaise) lines.push(row('Bank Payment', rupees(deductions.bankPaise)))
   lines.push(row('Expenses', rupees(data.reconciliation.expensesPaise)))
   lines.push(row('Expected Cash', rupees(data.cashSummary.totalCashPaise)))
   lines.push(row('Cash Taken', rupees(data.reconciliation.cashTakenPaise)))
