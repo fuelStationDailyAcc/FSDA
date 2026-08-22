@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark" class="dark" style="color-scheme: dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700;800&family=Montserrat:wght@500;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -16,7 +16,7 @@
       name="description"
       content="Ledger, meters, and station operations for PetroBook."
     />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="PetroBook" />
@@ -26,15 +26,21 @@
       (function () {
         try {
           var stored = localStorage.getItem('petrobook-theme')
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
           var theme =
-            stored === 'orange' || stored === 'light' || stored === 'dark' ? stored : 'dark'
-          if (!stored) localStorage.removeItem('theme')
-          document.documentElement.dataset.theme = theme
-          document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
-          document.documentElement.classList.toggle('dark', theme === 'dark')
-          var colors = { orange: '#002d56', light: '#ffffff', dark: '#000000' }
+            stored === 'dark' || stored === 'light'
+              ? stored
+              : stored === 'orange'
+                ? 'light'
+                : prefersDark
+                  ? 'dark'
+                  : 'light'
+          var root = document.documentElement
+          root.dataset.theme = theme
+          root.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
+          root.classList.toggle('dark', theme === 'dark')
           var meta = document.querySelector('meta[name="theme-color"]')
-          if (meta) meta.setAttribute('content', colors[theme] || colors.dark)
+          if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b1220' : '#ffffff')
         } catch (e) {}
       })()
     </script>

@@ -102,9 +102,8 @@ function AuthForm() {
 
       {error ? <p className="auth-error">{error}</p> : null}
 
-      <button type="submit" className="cta" disabled={submitting}>
-        {submitting ? 'PLEASE WAIT' : mode === 'register' ? 'REGISTER' : 'LOGIN'}
-        <span className="cta-arrow" aria-hidden="true" />
+      <button type="submit" className="auth-submit" disabled={submitting}>
+        {submitting ? 'Please wait…' : mode === 'register' ? 'Create account' : 'Sign in'}
       </button>
 
       <p className="auth-switch">

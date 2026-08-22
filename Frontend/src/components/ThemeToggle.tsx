@@ -1,9 +1,8 @@
 import { THEMES, THEME_LABELS, useTheme, type Theme } from '../context/ThemeContext'
 
 const THEME_HINTS: Record<Theme, string> = {
-  orange: 'Original navy and orange station look',
-  light: 'White grid, high contrast',
-  dark: 'Black grid, high contrast',
+  light: 'White background, high contrast',
+  dark: 'Dark background, easy on the eyes',
 }
 
 function ThemeToggle() {

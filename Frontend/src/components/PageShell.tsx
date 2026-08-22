@@ -1,14 +1,11 @@
 import type { ReactNode } from 'react'
-import heroBg from '../assets/hero-bg.png'
 import BrandLogo from './BrandLogo'
 import PwaInstallButton from './PwaInstallButton'
-import '../pages/HeroPage.css'
+import './PageShell.css'
 
 function PageShell({ children }: { children: ReactNode }) {
   return (
     <main className="hero-page">
-      <img className="hero-bg" src={heroBg} alt="" />
-      <div className="theme-grid" aria-hidden="true" />
       <header className="hero-topbar">
         <div className="hero-brand">
           <BrandLogo className="hero-brand-logo" alt="" size={40} />

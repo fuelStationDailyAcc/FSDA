@@ -8,11 +8,10 @@ import {
   type ReactNode,
 } from 'react'
 
-export const THEMES = ['orange', 'light', 'dark'] as const
+export const THEMES = ['light', 'dark'] as const
 export type Theme = (typeof THEMES)[number]
 
 export const THEME_LABELS: Record<Theme, string> = {
-  orange: 'Orange',
   light: 'Light',
   dark: 'Dark',
 }
@@ -25,28 +24,25 @@ type ThemeContextValue = {
 
 const STORAGE_KEY = 'petrobook-theme'
 const LEGACY_STORAGE_KEY = 'theme'
+
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function isTheme(value: string | null | undefined): value is Theme {
-  return value === 'orange' || value === 'light' || value === 'dark'
-}
-
-export function nextTheme(theme: Theme): Theme {
-  return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]
+  return value === 'light' || value === 'dark'
 }
 
 export function readStoredTheme(): Theme {
-  if (typeof window === 'undefined') return 'dark'
+  if (typeof window === 'undefined') return 'light'
   const stored = localStorage.getItem(STORAGE_KEY)
   if (isTheme(stored)) return stored
+  if (stored === 'orange') return 'light'
   localStorage.removeItem(LEGACY_STORAGE_KEY)
-  return 'dark'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
 const THEME_COLORS: Record<Theme, string> = {
-  orange: '#002d56',
   light: '#ffffff',
-  dark: '#000000',
+  dark: '#0b1220',
 }
 
 export function applyTheme(theme: Theme) {
@@ -67,16 +63,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme])
 
   const setTheme = useCallback((next: Theme) => {
-    applyTheme(next)
     setThemeState(next)
   }, [])
 
   const toggleTheme = useCallback(() => {
-    setThemeState((current) => {
-      const next = nextTheme(current)
-      applyTheme(next)
-      return next
-    })
+    setThemeState((current) => (current === 'dark' ? 'light' : 'dark'))
   }, [])
 
   const value = useMemo(

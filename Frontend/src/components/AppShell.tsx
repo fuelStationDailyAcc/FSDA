@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import heroBg from '../assets/hero-bg.png'
 import BrandLogo from './BrandLogo'
 import PwaInstallButton from './PwaInstallButton'
+import ThemeIconButton from './ThemeIconButton'
 import { useAuth } from '../context/AuthContext'
 import { hasPermission, isOwner } from '../lib/permissions'
 import './AppShell.css'
@@ -13,6 +13,7 @@ function AppShell() {
   const location = useLocation()
   const owner = isOwner(user)
   const [navOpen, setNavOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
     setNavOpen(false)
@@ -23,6 +24,15 @@ function AppShell() {
     return () => document.body.classList.remove('nav-menu-open')
   }, [navOpen])
 
+  useEffect(() => {
+    function onScroll() {
+      setScrolled(window.scrollY > 8)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   async function handleLogout() {
     setNavOpen(false)
     await logout()
@@ -31,8 +41,6 @@ function AppShell() {
 
   return (
     <div className="app-shell">
-      <img className="app-bg" src={heroBg} alt="" />
-      <div className="theme-grid" aria-hidden="true" />
       {navOpen ? (
         <button
           type="button"
@@ -41,17 +49,18 @@ function AppShell() {
           onClick={() => setNavOpen(false)}
         />
       ) : null}
-      <header className={`app-topbar${navOpen ? ' nav-open' : ''}`}>
+      <header className={`app-topbar${navOpen ? ' nav-open' : ''}${scrolled ? ' is-scrolled' : ''}`}>
         <div className="app-topbar-main">
           <div className="app-brand">
-            <BrandLogo className="app-brand-logo" alt="" size={40} />
+            <BrandLogo className="app-brand-logo" alt="" size={36} />
             <div className="app-brand-copy">
               <span className="app-brand-mark">PetroBook</span>
-              <span className="app-brand-sub">Daily Accounts</span>
+              <span className="app-brand-sub">Fuel station accounting</span>
             </div>
           </div>
           <div className="app-topbar-end">
             <div className="app-user">
+              <ThemeIconButton />
               <PwaInstallButton />
               <span className="app-user-name">{user?.username}</span>
               <button type="button" className="btn-ghost app-logout-btn" onClick={() => void handleLogout()}>
