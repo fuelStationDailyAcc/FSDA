@@ -12,7 +12,6 @@ import { useSearchParams } from 'react-router-dom'
 import {
   addCollection,
   addExpense,
-  addReading,
   addTransaction,
   closeDay,
   deleteCollection,
@@ -22,7 +21,6 @@ import {
   updateCashTaken,
   fetchLedgerNames,
   fetchPaymentMethods,
-  fetchProducts,
   fetchCustomers,
   fetchVendors,
   createCustomer,
@@ -34,7 +32,6 @@ import {
   type LedgerTxn,
   type MeterReading,
   type Party,
-  type FuelProduct,
   type PaymentMethod,
 } from '../api/accounts'
 import { Modal } from '../components/Modal'
@@ -152,7 +149,6 @@ function DailyAccountsPage() {
   const [data, setData] = useState<DailyAccountPayload | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [products, setProducts] = useState<FuelProduct[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [customers, setCustomers] = useState<Party[]>([])
   const [vendors, setVendors] = useState<Party[]>([])
@@ -225,12 +221,10 @@ function DailyAccountsPage() {
 
   useEffect(() => {
     void Promise.all([
-      fetchProducts(true),
       fetchPaymentMethods(true),
       fetchCustomers(),
       fetchVendors(),
-    ]).then(([p, m, c, v]) => {
-      setProducts(p.data)
+    ]).then(([m, c, v]) => {
       setPaymentMethods(m.data)
       setCustomers(c.data)
       setVendors(v.data)
@@ -505,14 +499,9 @@ function DailyAccountsPage() {
           <FuelReadingsSection
             ref={fuelSaveRef}
             readings={data.readings}
-            products={products}
             closed={locked}
             onDirtyChange={setReadingsDirty}
             onLiveSalesChange={setLiveFuelSalesPaise}
-            onAdd={async (productId) => {
-              const res = await addReading(date, productId)
-              applyDay(res.data)
-            }}
           />
 
           <CreditDebitSection
@@ -735,18 +724,15 @@ const FuelReadingsSection = forwardRef<
   FuelSaveHandle,
   {
     readings: DailyAccountPayload['readings']
-    products: FuelProduct[]
     closed: boolean
     onDirtyChange: (dirty: boolean) => void
     onLiveSalesChange: (paise: number) => void
-    onAdd: (productId: string) => Promise<void>
   }
 >(function FuelReadingsSection(
-  { readings, products, closed, onDirtyChange, onLiveSalesChange, onAdd },
+  { readings, closed, onDirtyChange, onLiveSalesChange },
   ref
 ) {
   const [drafts, setDrafts] = useState<Record<string, ReadingDraft>>({})
-  const [productId, setProductId] = useState('')
 
   useEffect(() => {
     setDrafts((prev) => {
