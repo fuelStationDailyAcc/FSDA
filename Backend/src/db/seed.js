@@ -5,8 +5,9 @@ import { UserModel } from "../models/user.model.js";
 
 const DEFAULT_PRODUCTS = [
     { name: "MS", productType: "MS", currentRatePaise: 10491, sortOrder: 1 },
-    { name: "HSD", productType: "HSD", currentRatePaise: 9484, sortOrder: 2 },
-    { name: "CNG", productType: "CNG", currentRatePaise: 0, sortOrder: 3 },
+    { name: "MS2", productType: "MS", currentRatePaise: 10491, sortOrder: 2 },
+    { name: "HSD", productType: "HSD", currentRatePaise: 9484, sortOrder: 3 },
+    { name: "HSD2", productType: "HSD", currentRatePaise: 9484, sortOrder: 4 },
 ];
 
 const DEFAULT_PAYMENT_METHODS = [

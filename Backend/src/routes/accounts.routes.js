@@ -29,6 +29,7 @@ import {
     listVendors,
     reopenDay,
     resetDay,
+    deleteDay,
     updateCashTaken,
     updateCustomer,
     updateExpenseCategory,
@@ -67,6 +68,7 @@ router.delete(
 router.post("/daily/close", requirePermission("accounts.write"), closeDay);
 router.post("/daily/reopen", requirePermission("accounts.write"), reopenDay);
 router.post("/daily/reset", requirePermission("accounts.write"), resetDay);
+router.delete("/daily", requirePermission("accounts.write"), deleteDay);
 
 router.get("/products", requireAnyPermission("accounts.read", "settings.read"), listProducts);
 router.post("/products", requirePermission("settings.write"), createProduct);

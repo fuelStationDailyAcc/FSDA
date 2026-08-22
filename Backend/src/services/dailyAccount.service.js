@@ -1355,6 +1355,54 @@ export const DailyAccountService = {
         return buildDayPayload(mapDaily(refreshed));
     },
 
+    async deleteDay(accountDate, userId, ownerId) {
+        if (!isValidObjectId(ownerId)) throw new ApiError(401, "Unauthorized request");
+        const date = normalizeDate(accountDate);
+        const owner = asObjectId(ownerId);
+        const accountDoc = await DailyAccount.findOne({ ownerId: owner, accountDate: date });
+        if (!accountDoc) throw new ApiError(404, "Daily account not found");
+
+        const dailyAccountId = accountDoc._id;
+        const readings = await FuelMeterReading.find({ dailyAccountId }).select("productId").lean();
+        const productIds = [...new Set(readings.map((row) => toId(row.productId)).filter(Boolean))];
+
+        await Promise.all([
+            FuelMeterReading.deleteMany({ dailyAccountId }),
+            DailyPaymentCollection.deleteMany({ dailyAccountId }),
+            Expense.deleteMany({ dailyAccountId }),
+            LedgerTransaction.deleteMany({ dailyAccountId }),
+        ]);
+        await DailyAccount.deleteOne({ _id: dailyAccountId });
+
+        for (const productId of productIds) {
+            const previousNew = await getPreviousProductReading(productId, date, ownerId);
+            const adjacent = await findAdjacentProductReading(productId, date, "next", ownerId);
+            if (!adjacent) continue;
+            await applyOpeningFromPrevious(adjacent._id, previousNew);
+            if (adjacent.day?.status !== "closed") {
+                const updated = await FuelMeterReading.findById(adjacent._id);
+                if (updated) {
+                    await propagateNewReadingToNextDay(
+                        productId,
+                        adjacent.day.accountDate,
+                        Number(updated.newReading),
+                        ownerId
+                    );
+                }
+            }
+        }
+
+        await writeAudit({
+            entityType: "daily_account",
+            entityId: dailyAccountId,
+            action: "delete",
+            userId,
+            details: { accountDate: date },
+        });
+
+        return { accountDate: date };
+    },
+
     async getProfitAnalytics({ ownerId, from, to } = {}) {
         if (!isValidObjectId(ownerId)) {
             return {

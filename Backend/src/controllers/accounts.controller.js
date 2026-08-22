@@ -162,6 +162,15 @@ export const resetDay = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, data, "Day reset to zero"));
 });
 
+export const deleteDay = asyncHandler(async (req, res) => {
+    const data = await DailyAccountService.deleteDay(
+        req.query.date || req.body.date,
+        req.user._id,
+        requireStationOwnerId(req.user)
+    );
+    return res.status(200).json(new ApiResponse(200, data, "Daily account deleted"));
+});
+
 export const listProducts = asyncHandler(async (req, res) => {
     const data = await FuelProduct.list(requireStationOwnerId(req.user), {
         activeOnly: req.query.activeOnly === "true",
