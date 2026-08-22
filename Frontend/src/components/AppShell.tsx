@@ -1,134 +1,147 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import BrandLogo from './BrandLogo'
 import PwaInstallButton from './PwaInstallButton'
 import ThemeIconButton from './ThemeIconButton'
+import {
+  IconCash,
+  IconChart,
+  IconHistory,
+  IconHome,
+  IconLedger,
+  IconLogout,
+  IconMeter,
+  IconSettings,
+  IconUsers,
+} from './landing/icons'
 import { useAuth } from '../context/AuthContext'
 import { hasPermission, isOwner } from '../lib/permissions'
 import './AppShell.css'
+
+type NavItem = {
+  to: string
+  label: string
+  icon: ReactNode
+  end?: boolean
+}
 
 function AppShell() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const owner = isOwner(user)
-  const [navOpen, setNavOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
+  const [pinnedOpen, setPinnedOpen] = useState(false)
+
+  const navItems = useMemo(() => {
+    const items: NavItem[] = [{ to: '/dashboard', label: 'Home', icon: <IconHome />, end: true }]
+
+    if (hasPermission(user, 'accounts.read')) {
+      items.push(
+        { to: '/accounts', label: 'Daily Accounts', icon: <IconMeter /> },
+        { to: '/history', label: 'History', icon: <IconHistory /> },
+        { to: '/analytics', label: 'Analytics', icon: <IconChart /> }
+      )
+    }
+
+    if (hasPermission(user, 'ledger.read')) {
+      items.push({ to: '/ledger', label: 'Ledger', icon: <IconLedger /> })
+    }
+
+    if (owner && user?.role !== 'staff') {
+      items.push(
+        { to: '/staff', label: 'Staff', icon: <IconUsers /> },
+        { to: '/salaries', label: 'Salaries', icon: <IconCash /> }
+      )
+    }
+
+    if (hasPermission(user, 'settings.read')) {
+      items.push({ to: '/settings', label: 'Settings', icon: <IconSettings /> })
+    }
+
+    return items
+  }, [owner, user])
 
   useEffect(() => {
-    setNavOpen(false)
+    setPinnedOpen(false)
   }, [location.pathname])
 
   useEffect(() => {
-    document.body.classList.toggle('nav-menu-open', navOpen)
+    document.body.classList.toggle('nav-menu-open', pinnedOpen)
     return () => document.body.classList.remove('nav-menu-open')
-  }, [navOpen])
-
-  useEffect(() => {
-    function onScroll() {
-      setScrolled(window.scrollY > 8)
-    }
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+  }, [pinnedOpen])
 
   async function handleLogout() {
-    setNavOpen(false)
+    setPinnedOpen(false)
     await logout()
     navigate('/login', { replace: true })
   }
 
   return (
     <div className="app-shell">
-      {navOpen ? (
+      {pinnedOpen ? (
         <button
           type="button"
           className="app-nav-backdrop"
           aria-label="Close menu"
-          onClick={() => setNavOpen(false)}
+          onClick={() => setPinnedOpen(false)}
         />
       ) : null}
-      <header className={`app-topbar${navOpen ? ' nav-open' : ''}${scrolled ? ' is-scrolled' : ''}`}>
-        <div className="app-topbar-main">
-          <div className="app-brand">
-            <BrandLogo className="app-brand-logo" alt="" size={36} />
-            <div className="app-brand-copy">
-              <span className="app-brand-mark">PetroBook</span>
-              <span className="app-brand-sub">Fuel station accounting</span>
+      <div className="app-layout">
+        <aside className={`app-sidebar${pinnedOpen ? ' is-pinned' : ''}`}>
+          <div
+            className="app-sidebar-head"
+            onClick={() => {
+              if (window.matchMedia('(hover: none)').matches) {
+                setPinnedOpen((open) => !open)
+              }
+            }}
+          >
+            <div className="app-brand">
+              <BrandLogo className="app-brand-logo" alt="" size={36} />
+              <div className="app-brand-copy">
+                <span className="app-brand-mark">PetroBook</span>
+                <span className="app-brand-sub">Fuel station accounting</span>
+              </div>
             </div>
           </div>
-          <div className="app-topbar-end">
+          <nav className="app-nav" id="app-main-nav" aria-label="Main">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className="app-nav-link"
+                title={item.label}
+                onClick={() => setPinnedOpen(false)}
+              >
+                <span className="app-nav-icon">{item.icon}</span>
+                <span className="app-nav-label">{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+          <div className="app-sidebar-footer">
             <div className="app-user">
               <ThemeIconButton />
               <PwaInstallButton />
               <span className="app-user-name">{user?.username}</span>
-              <button type="button" className="btn-ghost app-logout-btn" onClick={() => void handleLogout()}>
-                Log out
+              <button
+                type="button"
+                className="btn-ghost app-logout-btn"
+                title="Log out"
+                onClick={() => void handleLogout()}
+              >
+                <span className="app-nav-icon">
+                  <IconLogout />
+                </span>
+                <span className="app-nav-label">Log out</span>
               </button>
             </div>
-            <button
-              type="button"
-              className="app-nav-toggle"
-              aria-label={navOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={navOpen}
-              aria-controls="app-main-nav"
-              onClick={() => setNavOpen((open) => !open)}
-            >
-              <span className="app-nav-toggle-icon" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
-            </button>
           </div>
-        </div>
-        <nav className="app-nav" id="app-main-nav" aria-label="Main">
-          <NavLink to="/dashboard" end onClick={() => setNavOpen(false)}>
-            Home
-          </NavLink>
-          {hasPermission(user, 'accounts.read') ? (
-            <>
-              <NavLink to="/accounts" onClick={() => setNavOpen(false)}>
-                Daily Accounts
-              </NavLink>
-              <NavLink to="/history" onClick={() => setNavOpen(false)}>
-                History
-              </NavLink>
-              <NavLink to="/analytics" onClick={() => setNavOpen(false)}>
-                Analytics
-              </NavLink>
-            </>
-          ) : null}
-          {hasPermission(user, 'ledger.read') ? (
-            <NavLink to="/ledger" onClick={() => setNavOpen(false)}>
-              Ledger
-            </NavLink>
-          ) : null}
-          {owner && user?.role !== 'staff' ? (
-            <>
-              <NavLink to="/staff" onClick={() => setNavOpen(false)}>
-                Staff
-              </NavLink>
-              <NavLink to="/salaries" onClick={() => setNavOpen(false)}>
-                Salaries
-              </NavLink>
-            </>
-          ) : null}
-          {hasPermission(user, 'settings.read') ? (
-            <NavLink to="/settings" onClick={() => setNavOpen(false)}>
-              Settings
-            </NavLink>
-          ) : null}
-          <div className="app-nav-user-mobile">
-            <span className="app-nav-user-label">Signed in as</span>
-            <strong>{user?.username}</strong>
-          </div>
-        </nav>
-      </header>
-      <main className="app-main">
-        <Outlet />
-      </main>
+        </aside>
+        <main className="app-main">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }
